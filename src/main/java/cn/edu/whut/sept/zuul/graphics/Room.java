@@ -11,6 +11,7 @@ public class Room {
     private String name;                    // 房间名称
     private Color backgroundColor;          // 背景颜色
     private List<Item> items;               // 房间内的物品
+    private List<Enemy> enemies;            // 房间内的敌人（新增）
     private Rectangle doorArea;             // 门的区域（玩家碰到进入下一关）
     private int roomLevel;                  // 房间等级（第几关）
     private int requiredItems;              // 需要收集的物品数量（可选，用于过关条件）
@@ -20,6 +21,7 @@ public class Room {
         this.backgroundColor = backgroundColor;
         this.roomLevel = roomLevel;
         this.items = new ArrayList<>();
+        this.enemies = new ArrayList<>();  // 新增
         this.requiredItems = 0;
     }
 
@@ -37,6 +39,15 @@ public class Room {
 
     public void addItem(Item item) {
         items.add(item);
+    }
+
+    // ========== 新增：敌人相关方法 ==========
+    public List<Enemy> getEnemies() {
+        return enemies;
+    }
+
+    public void addEnemy(Enemy enemy) {
+        enemies.add(enemy);
     }
 
     public void setDoorArea(Rectangle doorArea) {
@@ -67,5 +78,10 @@ public class Room {
     // 获取物品数量
     public int getItemCount() {
         return items.size();
+    }
+
+    // 获取敌人数量
+    public int getEnemyCount() {
+        return enemies.size();
     }
 }
