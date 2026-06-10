@@ -3,6 +3,8 @@ package cn.edu.whut.sept.zuul.graphics;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
@@ -13,14 +15,33 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
     private boolean leftPressed, rightPressed, upPressed, downPressed;
 
+    // --- 新增：物品系统相关变量 ---
+    private List<Item> items; // 存储所有物品的列表
+    private int score;        // 玩家的分数
+
     public GamePanel() {
         setPreferredSize(new Dimension(800, 600));
         setBackground(Color.BLACK);
         setFocusable(true);
         addKeyListener(this);
 
+        // --- 新增：初始化物品和分数 ---
+        items = new ArrayList<>();
+        score = 0;
+        initItems();
+
         timer = new Timer(1000 / 60, this);
         timer.start();
+    }
+
+    // --- 新增：初始化地图上的物品 ---
+    private void initItems() {
+        // 在地图不同位置放置5个物品
+        items.add(new Item("金色徽章", 100, 200));
+        items.add(new Item("魔法水晶", 300, 100));
+        items.add(new Item("古老卷轴", 600, 400));
+        items.add(new Item("生命药水", 150, 500));
+        items.add(new Item("神秘钥匙", 650, 150));
     }
 
     @Override
@@ -37,7 +58,31 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         if (playerY < 0) playerY = 0;
         if (playerY > 560) playerY = 560;
 
-        repaint(); // 重绘画面
+        // --- 新增：移动后检查是否拾取物品 ---
+        checkPickup();
+
+        repaint();
+    }
+
+    // --- 新增：检查并处理物品拾取 ---
+    private void checkPickup() {
+        // 获取玩家边界矩形
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+        // 需要被移除的物品
+        Item toRemove = null;
+
+        for (Item item : items) {
+            if (playerRect.intersects(item.getBounds())) {
+                toRemove = item;
+                score++; // 拾取一个，分数加1
+                break;   // 一次移动只拾取一个物品
+            }
+        }
+
+        // 移除被拾取的物品
+        if (toRemove != null) {
+            items.remove(toRemove);
+        }
     }
 
     @Override
@@ -48,9 +93,23 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         g.setColor(Color.RED);
         g.fillRect(playerX, playerY, playerWidth, playerHeight);
 
-        // 显示提示文字
+        // --- 新增：画所有物品（金色圆形）---
+        for (Item item : items) {
+            g.setColor(Color.YELLOW);
+            g.fillOval(item.getX(), item.getY(), 20, 20);
+            // 可选：给物品加个边框
+            g.setColor(Color.ORANGE);
+            g.drawOval(item.getX(), item.getY(), 20, 20);
+        }
+
+        // --- 新增：显示分数 ---
         g.setColor(Color.WHITE);
-        g.drawString("使用方向键移动红色方块", 10, 20);
+        g.setFont(new Font("微软雅黑", Font.BOLD, 16));
+        g.drawString("分数: " + score, 10, 30);
+        g.drawString("目标: 收集所有金色物品", 10, 55);
+
+        // 原有提示文字
+        g.drawString("使用方向键移动红色方块", 10, 80);
     }
 
     // 键盘按下
