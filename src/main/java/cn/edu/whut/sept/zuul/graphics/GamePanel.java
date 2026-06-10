@@ -4,762 +4,751 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 
 public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
     private Timer timer;
-    private int playerX = 400, playerY = 500;
-    private int playerWidth = 40, playerHeight = 40;
+    private int playerX = 400, playerY = 400;
+    private int playerWidth = 30, playerHeight = 30;
     private int speed = 5;
-    private int originalSpeed = 5;  // 用于加速道具恢复
+    private int originalSpeed = 5;
 
     private boolean leftPressed, rightPressed, upPressed, downPressed;
+    private boolean spacePressed = false;
 
-    // 物品系统相关变量
-    private List<Item> items;      // 当前房间的物品
-    private int score;             // 总分（所有房间累计）
+    private List<Item> items;
+    private List<Obstacle> obstacles;
+    private int score;
 
-    // ========== 多房间系统 ==========
-    private List<Room> rooms;              // 所有房间列表
-    private int currentRoomIndex;          // 当前房间索引（0=第1关）
-    private Door door;                     // 传送门
-    private int itemsCollectedInRoom;      // 当前房间收集的物品数
-    private boolean levelCompleted;        // 当前关卡是否已完成（防止重复进门）
-    private String message;                // 提示消息
-    private int messageTimer;              // 消息显示计时器
+    private List<Room> rooms;
+    private int currentRoomIndex;
+    private List<Door> doors;
+    private List<KeyDoor> keyDoors;
+    private boolean levelCompleted;
+    private String message;
+    private int messageTimer;
 
-    // ========== 敌人系统相关变量 ==========
-    private boolean invincible = false;      // 无敌状态
-    private int invincibleTimer = 0;         // 无敌计时器（帧数）
-
-    // ========== 倒计时系统 ==========
-    private int timeLeft = 60;               // 剩余时间（秒）
-    private boolean gameOver = false;        // 游戏是否结束
-    private javax.swing.Timer countdownTimer;
-
-    // ========== 道具系统 ==========
-    private List<PowerUp> powerUps;          // 道具列表
+    private List<PowerUp> powerUps;
     private Random random;
 
-    // 道具效果状态
-    private boolean doubleScore = false;     // 双倍分数
-    private int doubleScoreTimer = 0;        // 双倍分数计时器（帧数）
-    private int speedBoostTimer = 0;         // 加速计时器（帧数）
+    private boolean doubleScore = false;
+    private int doubleScoreTimer = 0;
+    private int speedBoostTimer = 0;
 
-    // 图片变量
+    private int health = 100;
+    private int maxHealth = 100;
+
+    private Player player;
+    private Item nearbyItem = null;
+    private boolean inventoryUIVisible = false;
+
+    private Map<Room, List<Item>> roomStateMap = new HashMap<>();
+    private boolean hasKey = false;
+    private boolean ghostMode = false;
+    private int ghostModeTimer = 0;
+
     private BufferedImage playerImage;
-    private BufferedImage backgroundImage;
-    private BufferedImage itemImage;
 
-    // ========== 最高分存档 ==========
-    private int highScore = 0;               // 最高分
-    private String highScoreFile = "highscore.dat";  // 存档文件名
+    // UI 面板宽度
+    private final int LEFT_PANEL_WIDTH = 180;
+    private final int RIGHT_PANEL_WIDTH = 200;
+    private final int BOTTOM_PANEL_HEIGHT = 30;
 
     public GamePanel() {
-        setPreferredSize(new Dimension(800, 600));
-        setBackground(Color.BLACK);
+        setLayout(new BorderLayout());
+        setBackground(new Color(20, 20, 30));
         setFocusable(true);
         addKeyListener(this);
 
         random = new Random();
+        initGame();
+        loadPlayerImage();
 
-        // 初始化多房间系统
+        timer = new Timer(1000 / 60, this);
+        timer.start();
+        requestFocusInWindow();
+    }
+
+    private void initGame() {
         initRooms();
+        initObstacles();
+        initDoors();
+        initKeyDoors();
 
-        // 初始化当前房间（第1关）
         currentRoomIndex = 0;
-        itemsCollectedInRoom = 0;
         levelCompleted = false;
         message = "";
         messageTimer = 0;
         loadCurrentRoom();
 
-        // 初始化道具
-        initPowerUps();
-
-        // 创建传送门（右侧）
-        door = new Door(750, 250, 40, 100);
-
-        // 加载图片资源
-        loadImages();
-
-        // 加载最高分
-        loadHighScore();
-
-        timer = new Timer(1000 / 60, this);
-        timer.start();
-        setFocusable(true);
-        requestFocusInWindow();
-
-        // 倒计时定时器
-        countdownTimer = new javax.swing.Timer(1000, e -> {
-            if (!gameOver && !levelCompleted && timeLeft > 0) {
-                timeLeft--;
-                repaint();
-                if (timeLeft <= 0) {
-                    gameOver = true;
-                    updateHighScore();
-                    countdownTimer.stop();
-                    showMessage("⏰ 时间到！游戏结束！", 180);
-                }
-            }
-        });
-        countdownTimer.start();
+        player = new Player(400, 400);
+        health = maxHealth;
+        score = 0;
+        hasKey = false;
+        ghostMode = false;
+        ghostModeTimer = 0;
     }
 
-    // ========== 初始化所有房间 ==========
     private void initRooms() {
         rooms = new ArrayList<>();
-
-        // 房间1：新手关卡，3个物品，1个敌人
-        Room room1 = new Room("新手森林", new Color(25, 60, 30), 1);
-        room1.addItem(new Item("金色徽章", 100, 200));
-        room1.addItem(new Item("魔法水晶", 500, 300));
-        room1.addItem(new Item("生命药水", 300, 450));
-        room1.addEnemy(new Enemy(300, 250, 2));
+        Room room1 = new Room("森林", new Color(30, 60, 30), 1);
+        room1.addItem(new Item("金色徽章", "闪亮的徽章", 2, 100, 100));
+        room1.addItem(new Item("魔法水晶", "紫色水晶", 3, 700, 150));
+        room1.addItem(new Item("生命药水", "恢复20生命", 1, 300, 550));
+        room1.addItem(new Item("魔法饼干", "增加负重上限", 1, 650, 500));
+        room1.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 1, 500, 400));
+        room1.addItem(new Item("钥匙", "打开锁着的门", 1, 200, 300));
         rooms.add(room1);
 
-        // 房间2：进阶关卡，4个物品，2个敌人
-        Room room2 = new Room("冰霜洞穴", new Color(30, 40, 80), 2);
-        room2.addItem(new Item("冰晶碎片", 150, 180));
-        room2.addItem(new Item("霜之精华", 400, 120));
-        room2.addItem(new Item("寒冰宝石", 620, 350));
-        room2.addItem(new Item("暴风核心", 250, 520));
-        room2.addEnemy(new Enemy(200, 200, 2));
-        room2.addEnemy(new Enemy(600, 400, 3));
+        Room room2 = new Room("洞穴", new Color(60, 50, 40), 2);
+        room2.addItem(new Item("冰晶碎片", "散发寒气", 2, 120, 180));
+        room2.addItem(new Item("霜之精华", "冰霜精华", 3, 680, 220));
+        room2.addItem(new Item("寒冰宝石", "珍贵宝石", 4, 550, 500));
+        room2.addItem(new Item("生命药水", "恢复20生命", 1, 400, 80));
+        room2.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 1, 300, 450));
         rooms.add(room2);
 
-        // 房间3：困难关卡，5个物品，3个敌人
-        Room room3 = new Room("烈焰深渊", new Color(80, 30, 20), 3);
-        room3.addItem(new Item("火焰符文", 120, 250));
-        room3.addItem(new Item("熔岩之心", 550, 180));
-        room3.addItem(new Item("凤凰羽毛", 380, 380));
-        room3.addItem(new Item("龙鳞碎片", 680, 480));
-        room3.addItem(new Item("永恒之火", 200, 80));
-        room3.addEnemy(new Enemy(100, 150, 3));
-        room3.addEnemy(new Enemy(500, 200, 3));
-        room3.addEnemy(new Enemy(350, 500, 4));
+        Room room3 = new Room("深渊", new Color(80, 30, 20), 3);
+        room3.addItem(new Item("火焰符文", "火焰符文", 2, 100, 250));
+        room3.addItem(new Item("熔岩之心", "滚烫核心", 5, 700, 350));
+        room3.addItem(new Item("凤凰羽毛", "传说羽毛", 1, 400, 550));
+        room3.addItem(new Item("魔法饼干", "增加负重上限", 1, 250, 100));
+        room3.addItem(new Item("钥匙", "打开锁着的门", 1, 600, 500));
         rooms.add(room3);
     }
 
-    // ========== 初始化道具 ==========
-    private void initPowerUps() {
-        powerUps = new ArrayList<>();
-        // 在当前房间随机生成3个道具
-        powerUps.add(new PowerUp(200, 300, PowerUp.Type.SPEED));
-        powerUps.add(new PowerUp(550, 250, PowerUp.Type.INVINCIBLE));
-        powerUps.add(new PowerUp(400, 480, PowerUp.Type.DOUBLE));
+    private void initObstacles() {
+        obstacles = new ArrayList<>();
+        // 柱子
+        obstacles.add(new Obstacle(80, 80, 40, 40, false, true));
+        obstacles.add(new Obstacle(750, 80, 40, 40, false, true));
+        obstacles.add(new Obstacle(80, 520, 40, 40, false, true));
+        obstacles.add(new Obstacle(750, 520, 40, 40, false, true));
+        obstacles.add(new Obstacle(400, 150, 40, 40, false, true));
+        obstacles.add(new Obstacle(600, 400, 40, 40, false, true));
+        obstacles.add(new Obstacle(200, 450, 40, 40, false, true));
+        obstacles.add(new Obstacle(500, 250, 40, 40, false, true));
+        // 尖刺
+        obstacles.add(new Obstacle(300, 100, 30, 30, true, true));
+        obstacles.add(new Obstacle(650, 300, 30, 30, true, true));
+        obstacles.add(new Obstacle(150, 500, 30, 30, true, true));
+        obstacles.add(new Obstacle(550, 550, 30, 30, true, true));
+        obstacles.add(new Obstacle(450, 350, 30, 30, true, true));
+        obstacles.add(new Obstacle(250, 200, 30, 30, true, true));
     }
 
-    // ========== 重置当前房间的道具 ==========
-    private void resetPowerUpsForRoom() {
-        powerUps.clear();
-        // 根据房间难度生成不同数量的道具
-        int powerUpCount = currentRoomIndex + 2; // 第1关2个，第2关3个，第3关4个
-        for (int i = 0; i < powerUpCount; i++) {
-            int x = 50 + random.nextInt(700);
-            int y = 50 + random.nextInt(450);
-            PowerUp.Type type;
-            int typeRand = random.nextInt(3);
-            if (typeRand == 0) type = PowerUp.Type.SPEED;
-            else if (typeRand == 1) type = PowerUp.Type.INVINCIBLE;
-            else type = PowerUp.Type.DOUBLE;
-            powerUps.add(new PowerUp(x, y, type));
-        }
+    private void initDoors() {
+        doors = new ArrayList<>();
+        doors.add(new Door(20, 300, 30, 50, "west"));
+        doors.add(new Door(750, 300, 30, 50, "east"));
+        doors.add(new Door(400, 20, 50, 30, "north"));
+        doors.add(new Door(400, 620, 50, 30, "south"));
     }
 
-    // ========== 加载当前房间 ==========
+    private void initKeyDoors() {
+        keyDoors = new ArrayList<>();
+        keyDoors.add(new KeyDoor(700, 250, 40, 60, "east", 1));
+        keyDoors.add(new KeyDoor(100, 550, 40, 60, "south", 2));
+        keyDoors.add(new KeyDoor(300, 20, 60, 40, "north", 3));
+    }
+
     private void loadCurrentRoom() {
         Room currentRoom = rooms.get(currentRoomIndex);
-        // 复制当前房间的物品列表
-        items = new ArrayList<>();
-        for (Item item : currentRoom.getItems()) {
-            items.add(item);
+        if (roomStateMap.containsKey(currentRoom)) {
+            items = new ArrayList<>();
+            for (Item item : roomStateMap.get(currentRoom)) items.add(item);
+        } else {
+            items = new ArrayList<>();
+            for (Item item : currentRoom.getItems()) items.add(item);
         }
-        // 重置玩家位置
         playerX = 400;
-        playerY = 500;
-        // 重置关卡完成标志
+        playerY = 400;
+        if (player != null) player.setPosition(400, 400);
         levelCompleted = false;
-        // 重置道具效果
-        doubleScore = false;
-        doubleScoreTimer = 0;
-        speedBoostTimer = 0;
-        speed = originalSpeed;
-        // 确保道具列表已初始化
-        if (powerUps == null) {
-            powerUps = new ArrayList<>();
-        }
-        resetPowerUpsForRoom();
-        // 显示欢迎消息
-        showMessage("进入 " + currentRoom.getName() + "！收集所有星星！", 120);
     }
 
-    // ========== 切换到下一房间 ==========
-    private void switchToNextRoom() {
-        if (levelCompleted) return;
+    private void saveCurrentRoomState() {
+        Room currentRoom = rooms.get(currentRoomIndex);
+        List<Item> saved = new ArrayList<>();
+        for (Item item : items) saved.add(item);
+        roomStateMap.put(currentRoom, saved);
+    }
 
-        // 检查是否是最后一关
+    private void loadPlayerImage() {
+        try {
+            playerImage = ImageIO.read(getClass().getResource("/player.png"));
+        } catch (Exception e) {}
+    }
+
+    private void checkDoors() {
+        if (levelCompleted) return;
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+        for (Door door : doors) {
+            if (playerRect.intersects(door.getBounds())) {
+                switchToNextRoom(door.getDirectionIndex());
+                return;
+            }
+        }
+    }
+
+    private void checkKeyDoors() {
+        if (levelCompleted) return;
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+        for (KeyDoor kd : keyDoors) {
+            if (kd.getRoomLevel() == currentRoomIndex + 1 && playerRect.intersects(kd.getBounds())) {
+                if (hasKey) {
+                    hasKey = false;
+                    showMessage("钥匙消耗！门打开了！", 60);
+                    switchToNextRoom(kd.getDirectionIndex());
+                } else {
+                    showMessage("门被锁住了！需要钥匙！", 60);
+                }
+                return;
+            }
+        }
+    }
+
+    private void switchToNextRoom(int direction) {
+        if (levelCompleted) return;
+        saveCurrentRoomState();
         if (currentRoomIndex + 1 >= rooms.size()) {
-            gameOver = true;
-            updateHighScore();
-            countdownTimer.stop();
-            showMessage("🎉 恭喜你完成了所有关卡！总分数: " + score + " 🎉", 180);
-            levelCompleted = true;
+            gameOver();
             return;
         }
-
-        // 切换到下一关
         currentRoomIndex++;
         loadCurrentRoom();
-        itemsCollectedInRoom = 0;
-        showMessage("⭐ 进入第 " + (currentRoomIndex + 1) + " 关！难度提升！⭐", 120);
+        showMessage("进入 " + rooms.get(currentRoomIndex).getName() + "！", 60);
     }
 
-    // ========== 显示临时消息 ==========
+    private void gameOver() {
+        showMessage("🎉 通关胜利！总分数: " + score + " 🎉", 180);
+        levelCompleted = true;
+    }
+
     private void showMessage(String msg, int duration) {
         message = msg;
         messageTimer = duration;
     }
 
-    // ========== 检查是否碰到门 ==========
-    private void checkDoorEntry() {
-        if (levelCompleted || gameOver) return;
-
+    private void checkObstacleCollision() {
+        if (ghostMode) return;
         Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
-        if (door.getBounds().intersects(playerRect)) {
-            if (items.isEmpty()) {
-                switchToNextRoom();
-            } else {
-                showMessage("还需要收集 " + items.size() + " 个星星才能进入下一关！", 60);
+        for (Obstacle obs : obstacles) {
+            if (playerRect.intersects(obs.getBounds())) {
+                // 阻挡移动
+                if (leftPressed) playerX += 5;
+                if (rightPressed) playerX -= 5;
+                if (upPressed) playerY += 5;
+                if (downPressed) playerY -= 5;
+                while (playerRect.intersects(obs.getBounds())) {
+                    if (leftPressed) playerX++;
+                    if (rightPressed) playerX--;
+                    if (upPressed) playerY++;
+                    if (downPressed) playerY--;
+                    playerRect.setBounds(playerX, playerY, playerWidth, playerHeight);
+                }
+                if (obs.isSpike()) {
+                    health -= 10;
+                    if (health <= 0) {
+                        health = 0;
+                        restartGame();
+                        showMessage("你死了！游戏重新开始！", 60);
+                    } else {
+                        showMessage("触碰尖刺！-10生命！", 30);
+                    }
+                }
+                break;
             }
         }
     }
 
-    // ========== 加载图片资源 ==========
-    private void loadImages() {
-        try {
-            playerImage = ImageIO.read(getClass().getResource("/player.png"));
-            if (playerImage == null) {
-                System.out.println("警告：找不到图片 /player.png，将使用红色方块代替");
+    private void checkNearbyItem() {
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+        nearbyItem = null;
+        for (Item item : items) {
+            Rectangle itemRect = new Rectangle(item.getX(), item.getY(), 20, 20);
+            Rectangle expanded = new Rectangle(playerRect.x - 50, playerRect.y - 50, playerRect.width + 100, playerRect.height + 100);
+            if (expanded.intersects(itemRect)) {
+                nearbyItem = item;
+                break;
             }
-        } catch (Exception e) {
-            System.out.println("玩家图片加载失败：" + e.getMessage());
         }
+    }
 
-        try {
-            backgroundImage = ImageIO.read(getClass().getResource("/background.png"));
-            if (backgroundImage == null) {
-                System.out.println("警告：找不到图片 /background.png，将使用渐变背景代替");
+    private void pickupNearbyItem() {
+        if (nearbyItem == null) return;
+        String name = nearbyItem.getName();
+        if (name.equals("魔法饼干")) {
+            player.increaseMaxWeight(5);
+            items.remove(nearbyItem);
+            showMessage("吃掉魔法饼干！负重上限+5！", 60);
+        } else if (name.equals("生命药水")) {
+            health = Math.min(maxHealth, health + 20);
+            items.remove(nearbyItem);
+            showMessage("生命+20！当前 " + health + "/" + maxHealth, 60);
+        } else if (name.equals("幽灵药水")) {
+            ghostMode = true;
+            ghostModeTimer = 300;
+            items.remove(nearbyItem);
+            showMessage("幽灵模式！5秒内可穿过障碍物！", 60);
+        } else if (name.equals("钥匙")) {
+            hasKey = true;
+            items.remove(nearbyItem);
+            showMessage("获得了钥匙！可以打开锁着的门！", 60);
+        } else {
+            if (player.takeItem(nearbyItem)) {
+                int add = doubleScore ? 2 : 1;
+                score += add;
+                items.remove(nearbyItem);
+                showMessage("拾取 " + name + (doubleScore ? " +2分" : " +1分"), 60);
+            } else {
+                showMessage("太重了！负重：" + player.getCurrentWeight() + "/" + player.getMaxWeight(), 60);
             }
-        } catch (Exception e) {
-            System.out.println("背景图片加载失败：" + e.getMessage());
         }
-
-        try {
-            itemImage = ImageIO.read(getClass().getResource("/item.png"));
-            if (itemImage == null) {
-                System.out.println("警告：找不到图片 /item.png，将使用星星代替");
-            }
-        } catch (Exception e) {
-            System.out.println("物品图片加载失败：" + e.getMessage());
-        }
+        nearbyItem = null;
     }
 
     @Override
     public void actionPerformed(ActionEvent e) {
-        if (gameOver) {
+        if (levelCompleted) {
             repaint();
             return;
         }
-
-        // 移动玩家
         if (leftPressed) playerX -= speed;
         if (rightPressed) playerX += speed;
         if (upPressed) playerY -= speed;
         if (downPressed) playerY += speed;
 
-        // 边界限制
-        if (playerX < 0) playerX = 0;
-        if (playerX > 760) playerX = 760;
-        if (playerY < 0) playerY = 0;
-        if (playerY > 560) playerY = 560;
+        // 玩家移动边界：不能进入左右UI面板区域
+        int minX = LEFT_PANEL_WIDTH + 10;
+        int maxX = getWidth() - RIGHT_PANEL_WIDTH - playerWidth - 10;
+        int minY = 10;
+        int maxY = getHeight() - BOTTOM_PANEL_HEIGHT - playerHeight - 10;
+        playerX = Math.max(minX, Math.min(maxX, playerX));
+        playerY = Math.max(minY, Math.min(maxY, playerY));
 
-        // 更新道具效果计时
+        if (player != null) player.setPosition(playerX, playerY);
+
         updatePowerUpTimers();
+        if (ghostModeTimer > 0) {
+            ghostModeTimer--;
+            if (ghostModeTimer <= 0) ghostMode = false;
+        }
+        checkObstacleCollision();
+        checkDoors();
+        checkKeyDoors();
+        checkNearbyItem();
 
-        // 检查是否拾取物品
-        checkPickup();
-
-        // 检查是否拾取道具
-        checkPowerUpPickup();
-
-        // 检查是否碰到门
-        checkDoorEntry();
-
-        // 更新所有敌人位置
-        Room currentRoom = rooms.get(currentRoomIndex);
-        for (Enemy enemy : currentRoom.getEnemies()) {
-            enemy.move();
-            enemy.bounceIfNeeded(800, 600);
+        if (spacePressed) {
+            pickupNearbyItem();
+            spacePressed = false;
         }
 
-        // 检查玩家与敌人的碰撞
-        checkEnemyCollision();
-
-        // 更新无敌计时
-        if (invincibleTimer > 0) {
-            invincibleTimer--;
-            if (invincibleTimer <= 0) {
-                invincible = false;
-            }
-        }
-
-        // 更新消息计时器
-        if (messageTimer > 0) {
-            messageTimer--;
-        }
-
+        if (messageTimer > 0) messageTimer--;
         repaint();
     }
 
-    // ========== 更新道具效果计时 ==========
     private void updatePowerUpTimers() {
         if (speedBoostTimer > 0) {
             speedBoostTimer--;
-            if (speedBoostTimer <= 0) {
-                speed = originalSpeed;
-            }
+            if (speedBoostTimer <= 0) speed = originalSpeed;
         }
         if (doubleScoreTimer > 0) {
             doubleScoreTimer--;
-            if (doubleScoreTimer <= 0) {
-                doubleScore = false;
-            }
+            if (doubleScoreTimer <= 0) doubleScore = false;
         }
     }
 
-    // ========== 检查道具拾取 ==========
-    private void checkPowerUpPickup() {
-        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
-        PowerUp toRemove = null;
-
-        for (PowerUp p : powerUps) {
-            if (playerRect.intersects(p.getBounds())) {
-                toRemove = p;
-                applyPowerUp(p.getType());
-                break;
-            }
-        }
-
-        if (toRemove != null) {
-            powerUps.remove(toRemove);
-            showMessage("✨ 获得道具！", 30);
-        }
+    private void drawGridBackground(Graphics2D g) {
+        g.setColor(new Color(30, 35, 45));
+        g.fillRect(0, 0, getWidth(), getHeight());
+        int cell = 40;
+        g.setColor(new Color(50, 55, 65));
+        for (int x = 0; x < getWidth(); x += cell) g.drawLine(x, 0, x, getHeight());
+        for (int y = 0; y < getHeight(); y += cell) g.drawLine(0, y, getWidth(), y);
     }
 
-    // ========== 应用道具效果 ==========
-    private void applyPowerUp(PowerUp.Type type) {
-        switch (type) {
-            case SPEED:
-                speed = originalSpeed + 3;
-                speedBoostTimer = 300; // 5秒 (60帧 * 5)
-                showMessage("⚡ 速度提升！持续5秒", 60);
-                break;
-            case INVINCIBLE:
-                invincible = true;
-                invincibleTimer = 180; // 3秒
-                showMessage("✨ 无敌状态！持续3秒", 60);
-                break;
-            case DOUBLE:
-                doubleScore = true;
-                doubleScoreTimer = 300; // 5秒
-                showMessage("2x 双倍分数！持续5秒", 60);
-                break;
-        }
-    }
-
-    // ========== 检查玩家与敌人碰撞 ==========
-    private void checkEnemyCollision() {
-        if (invincible) return;
-
-        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+    private void drawRoomArea(Graphics2D g) {
+        // 房间区域在左右面板之间，留出边距
+        int roomX = LEFT_PANEL_WIDTH + 10;
+        int roomY = 10;
+        int roomW = getWidth() - LEFT_PANEL_WIDTH - RIGHT_PANEL_WIDTH - 20;
+        int roomH = getHeight() - BOTTOM_PANEL_HEIGHT - 20;
         Room currentRoom = rooms.get(currentRoomIndex);
-
-        for (Enemy enemy : currentRoom.getEnemies()) {
-            if (playerRect.intersects(enemy.getBounds())) {
-                int penalty = doubleScore ? 20 : 10;
-                score -= penalty;
-                if (score < 0) score = 0;
-
-                playerX = 400;
-                playerY = 500;
-
-                invincible = true;
-                invincibleTimer = 60;
-
-                showMessage("💀 被敌人攻击！-" + penalty + "分！", 40);
-                break;
-            }
-        }
-    }
-
-    // ========== 检查并处理物品拾取 ==========
-    private void checkPickup() {
-        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
-        Item toRemove = null;
-
-        for (Item item : items) {
-            if (playerRect.intersects(item.getBounds())) {
-                toRemove = item;
-                int addScore = doubleScore ? 2 : 1;
-                score += addScore;
-                itemsCollectedInRoom++;
-                break;
-            }
-        }
-
-        if (toRemove != null) {
-            items.remove(toRemove);
-            String scoreMsg = doubleScore ? "+2 星星（双倍）！" : "+1 星星！";
-            showMessage(scoreMsg + " 本关剩余: " + items.size(), 30);
-        }
-    }
-
-    // ========== 绘制背景 ==========
-    private void drawBackground(Graphics2D g) {
-        if (backgroundImage != null) {
-            g.drawImage(backgroundImage, 0, 0, 800, 600, null);
-        } else {
-            Room currentRoom = rooms.get(currentRoomIndex);
-            Color startColor = currentRoom.getBackgroundColor();
-            Color endColor = new Color(
-                    startColor.getRed() / 2,
-                    startColor.getGreen() / 2,
-                    startColor.getBlue() / 2
-            );
-            GradientPaint gradient = new GradientPaint(0, 0, startColor, 0, 600, endColor);
-            g.setPaint(gradient);
-            g.fillRect(0, 0, 800, 600);
-        }
+        g.setColor(currentRoom.getBackgroundColor());
+        g.fillRoundRect(roomX, roomY, roomW, roomH, 20, 20);
+        g.setColor(Color.BLACK);
+        g.setStroke(new BasicStroke(4));
+        g.drawRoundRect(roomX, roomY, roomW, roomH, 20, 20);
     }
 
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2d = (Graphics2D) g;
+        drawGridBackground(g2d);
+        drawRoomArea(g2d);
 
-        // 1. 背景
-        drawBackground(g2d);
-
-        // 2. 网格线
-        g2d.setColor(new Color(255, 255, 255, 30));
-        g2d.setStroke(new BasicStroke(1));
-        for (int i = 0; i <= 800; i += 50) {
-            g2d.drawLine(i, 0, i, 600);
-            g2d.drawLine(0, i, 800, i);
+        // 绘制障碍物、门、物品、玩家等（使用绝对坐标，它们已经在房间区域内）
+        for (Obstacle obs : obstacles) obs.draw(g2d);
+        for (Door door : doors) door.draw(g2d);
+        for (KeyDoor kd : keyDoors) {
+            if (kd.getRoomLevel() == currentRoomIndex + 1) kd.draw(g2d);
         }
-
-        // 3. 随机星星点缀
-        g2d.setColor(new Color(255, 255, 200, 150));
-        for (int i = 0; i < 100; i++) {
-            int x = (i * 131) % 800;
-            int y = (i * 253) % 600;
-            g2d.fillOval(x, y, 2, 2);
-        }
-
-        // 4. 画门
-        door.draw(g2d);
-
-        // 5. 画道具
-        for (PowerUp p : powerUps) {
-            p.draw(g2d);
-        }
-
-        // 6. 画物品
         for (Item item : items) {
             drawItem(g2d, item.getX(), item.getY());
+            g2d.setColor(new Color(255, 220, 150));
+            g2d.setFont(new Font("微软雅黑", Font.PLAIN, 10));
+            g2d.drawString(item.getName(), item.getX() - 5, item.getY() - 5);
         }
 
-        // 7. 画所有敌人
-        Room currentRoom = rooms.get(currentRoomIndex);
-        for (Enemy enemy : currentRoom.getEnemies()) {
-            enemy.draw(g2d);
-        }
-
-        // 8. 画玩家（无敌闪烁效果）
-        if (invincible && (invincibleTimer / 5) % 2 == 0) {
-            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
-        }
         if (playerImage != null) {
             g2d.drawImage(playerImage, playerX, playerY, playerWidth, playerHeight, null);
         } else {
-            g2d.setColor(Color.RED);
-            g2d.fillRect(playerX, playerY, playerWidth, playerHeight);
-        }
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
-
-        // 9. 画UI
-        drawUI(g2d);
-
-        // 10. 画临时消息
-        if (messageTimer > 0 && !message.isEmpty()) {
-            drawMessage(g2d);
+            g2d.setColor(new Color(70, 130, 200));
+            g2d.fillRoundRect(playerX, playerY, playerWidth, playerHeight, 8, 8);
         }
 
-        // 11. 画游戏结束画面
-        if (gameOver) {
-            drawGameOver(g2d);
+        if (nearbyItem != null) {
+            g2d.setColor(new Color(0, 0, 0, 180));
+            g2d.fillRoundRect(playerX - 10, playerY - 25, 70, 22, 8, 8);
+            g2d.setColor(Color.YELLOW);
+            g2d.setFont(new Font("微软雅黑", Font.BOLD, 11));
+            g2d.drawString("空格拾取", playerX - 5, playerY - 10);
         }
+
+        drawLeftPanel(g2d);
+        drawRightPanel(g2d);
+        drawBottomBar(g2d);
+
+        if (inventoryUIVisible) drawInventoryUI(g2d);
+        if (messageTimer > 0 && !message.isEmpty()) drawMessage(g2d);
+        if (levelCompleted && currentRoomIndex + 1 >= rooms.size()) drawGameOver(g2d);
     }
 
-    // ========== 加载最高分 ==========
-    private void loadHighScore() {
-        try {
-            File file = new File(highScoreFile);
-            if (file.exists()) {
-                BufferedReader reader = new BufferedReader(new FileReader(file));
-                String line = reader.readLine();
-                if (line != null) {
-                    highScore = Integer.parseInt(line);
-                }
-                reader.close();
-                System.out.println("加载最高分: " + highScore);
-            } else {
-                highScore = 0;
-                System.out.println("没有存档文件，最高分初始为0");
-            }
-        } catch (Exception e) {
-            System.out.println("加载最高分失败：" + e.getMessage());
-            highScore = 0;
-        }
-    }
-
-    // ========== 保存最高分 ==========
-    private void saveHighScore() {
-        try {
-            BufferedWriter writer = new BufferedWriter(new FileWriter(highScoreFile));
-            writer.write(String.valueOf(highScore));
-            writer.close();
-            System.out.println("保存最高分: " + highScore);
-        } catch (Exception e) {
-            System.out.println("保存最高分失败：" + e.getMessage());
-        }
-    }
-
-    // ========== 更新最高分 ==========
-    private void updateHighScore() {
-        if (score > highScore) {
-            highScore = score;
-            saveHighScore();
-        }
-    }
-
-    // ========== 绘制游戏结束画面 ==========
-    private void drawGameOver(Graphics2D g) {
-        g.setColor(new Color(0, 0, 0, 220));
-        g.fillRect(0, 0, 800, 600);
-
-        g.setFont(new Font("微软雅黑", Font.BOLD, 48));
-
-        if (timeLeft <= 0 && !levelCompleted) {
-            g.setColor(Color.RED);
-            g.drawString("⏰ 时间到！", 280, 200);
-        } else if (levelCompleted || currentRoomIndex + 1 >= rooms.size()) {
-            g.setColor(Color.YELLOW);
-            g.drawString("🎉 通关胜利！", 280, 200);
-        } else {
-            g.setColor(Color.RED);
-            g.drawString("💀 游戏结束", 300, 200);
-        }
-
-        // 显示本次得分和最高分
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 24));
-        g.setColor(Color.WHITE);
-        g.drawString("本次得分: " + score, 310, 300);
-        g.drawString("最高分: " + highScore, 310, 350);
-
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 20));
-        g.drawString("按 R 键重新开始", 320, 450);
-    }
-
-    // ========== 绘制临时消息 ==========
-    private void drawMessage(Graphics2D g) {
+    private void drawLeftPanel(Graphics2D g) {
+        int x = 10;
+        int y = 10;
+        int w = LEFT_PANEL_WIDTH - 10;
+        int h = getHeight() - BOTTOM_PANEL_HEIGHT - 20;
         g.setColor(new Color(0, 0, 0, 200));
-        g.fillRoundRect(200, 250, 400, 60, 20, 20);
-        g.setFont(new Font("微软雅黑", Font.BOLD, 18));
+        g.fillRoundRect(x, y, w, h, 12, 12);
+        g.setColor(new Color(100, 180, 250));
+        g.drawRoundRect(x, y, w, h, 12, 12);
+
+        int py = y + 20;
+        g.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        g.setColor(Color.WHITE);
+        g.drawString("冒险者", x + 10, py);
+        py += 20;
+        // 生命条
+        g.setColor(new Color(80, 0, 0));
+        g.fillRoundRect(x + 10, py, w - 20, 14, 7, 7);
+        int hpPercent = health * (w - 20) / maxHealth;
+        g.setColor(new Color(220, 50, 50));
+        g.fillRoundRect(x + 10, py, hpPercent, 14, 7, 7);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("微软雅黑", Font.BOLD, 10));
+        g.drawString(health + "/" + maxHealth, x + w/2 - 20, py + 11);
+        py += 20;
+        // 分数
+        g.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        g.setColor(Color.YELLOW);
+        g.drawString("💰 " + score, x + 10, py);
+        py += 20;
+        // 负重条
+        g.setColor(new Color(60, 40, 40));
+        g.fillRoundRect(x + 10, py, w - 20, 12, 6, 6);
+        int weightPercent = player.getCurrentWeight() * (w - 20) / player.getMaxWeight();
+        g.setColor(new Color(255, 180, 50));
+        g.fillRoundRect(x + 10, py, weightPercent, 12, 6, 6);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 9));
+        g.drawString("负重:" + player.getCurrentWeight() + "/" + player.getMaxWeight() + "kg", x + 10, py + 18);
+        py += 30;
+        // 状态
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+        if (speedBoostTimer > 0) { g.setColor(Color.GREEN); g.drawString("⚡加速中", x + 10, py); py += 18; }
+        if (ghostMode) { g.setColor(Color.MAGENTA); g.drawString("👻幽灵模式", x + 10, py); py += 18; }
+        if (hasKey) { g.setColor(Color.YELLOW); g.drawString("🔑持有钥匙", x + 10, py); }
+    }
+
+    private void drawRightPanel(Graphics2D g) {
+        int x = getWidth() - RIGHT_PANEL_WIDTH + 10;
+        int y = 10;
+        int w = RIGHT_PANEL_WIDTH - 20;
+        int h = getHeight() - BOTTOM_PANEL_HEIGHT - 20;
+        g.setColor(new Color(0, 0, 0, 200));
+        g.fillRoundRect(x, y, w, h, 12, 12);
+        g.setColor(new Color(100, 180, 250));
+        g.drawRoundRect(x, y, w, h, 12, 12);
+
+        Room currentRoom = rooms.get(currentRoomIndex);
+        g.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        g.setColor(Color.CYAN);
+        g.drawString("🏠 " + currentRoom.getName(), x + 10, y + 25);
+        g.setFont(new Font("微软雅黑", Font.BOLD, 12));
+        g.setColor(Color.YELLOW);
+        g.drawString("📦 物品清单 (" + items.size() + ")", x + 10, y + 50);
+
+        int py = y + 70;
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+        for (Item item : items) {
+            if (py > y + h - 60) break;
+            g.setColor(new Color(255, 220, 150));
+            g.drawString("● " + item.getName() + " (" + item.getWeight() + "kg)", x + 10, py);
+            py += 18;
+        }
+        py += 10;
+        g.setColor(Color.CYAN);
+        g.drawString("🚪 房门出口", x + 10, py);
+        py += 18;
+        g.setColor(Color.WHITE);
+        for (Door door : doors) {
+            String dir = door.getDirection();
+            String arrow = "";
+            switch(dir) {
+                case "north": arrow = "↑ 北"; break;
+                case "south": arrow = "↓ 南"; break;
+                case "east": arrow = "→ 东"; break;
+                case "west": arrow = "← 西"; break;
+            }
+            g.drawString(arrow, x + 10, py);
+            py += 16;
+        }
+        for (KeyDoor kd : keyDoors) {
+            if (kd.getRoomLevel() == currentRoomIndex + 1) {
+                String dir = kd.getDirection();
+                String arrow = "";
+                switch(dir) {
+                    case "north": arrow = "↑ 北(🔒)"; break;
+                    case "south": arrow = "↓ 南(🔒)"; break;
+                    case "east": arrow = "→ 东(🔒)"; break;
+                    case "west": arrow = "← 西(🔒)"; break;
+                }
+                g.setColor(Color.RED);
+                g.drawString(arrow, x + 10, py);
+                py += 16;
+            }
+        }
+    }
+
+    private void drawBottomBar(Graphics2D g) {
+        int y = getHeight() - BOTTOM_PANEL_HEIGHT;
+        g.setColor(new Color(0, 0, 0, 180));
+        g.fillRoundRect(0, y, getWidth(), BOTTOM_PANEL_HEIGHT, 10, 10);
+        g.setColor(new Color(200, 200, 220));
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        String tips = "WASD/方向键 移动   空格 拾取   I 背包   L 查看房间   B 返回上一房间   R 重新开始";
+        int tipW = g.getFontMetrics().stringWidth(tips);
+        g.drawString(tips, (getWidth() - tipW) / 2, y + 20);
+    }
+
+    private void drawInventoryUI(Graphics2D g) {
+        if (!inventoryUIVisible) return;
+        g.setColor(new Color(0, 0, 0, 220));
+        g.fillRect(0, 0, getWidth(), getHeight());
+
+        int pw = 500, ph = 400;
+        int px = (getWidth() - pw) / 2;
+        int py = (getHeight() - ph) / 2;
+        g.setColor(new Color(40, 35, 55));
+        g.fillRoundRect(px, py, pw, ph, 20, 20);
+        g.setColor(new Color(150, 100, 200));
+        g.setStroke(new BasicStroke(3));
+        g.drawRoundRect(px, py, pw, ph, 20, 20);
+
+        g.setFont(new Font("微软雅黑", Font.BOLD, 24));
+        g.setColor(Color.YELLOW);
+        g.drawString("📦 背包", px + pw/2 - 60, py + 50);
+
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 14));
+        g.setColor(Color.WHITE);
+        g.drawString("负重: " + player.getCurrentWeight() + "/" + player.getMaxWeight() + " kg", px + 150, py + 90);
+
+        g.setColor(new Color(60, 40, 40));
+        g.fillRoundRect(px + 110, py + 105, 280, 12, 6, 6);
+        int weightPercent = player.getCurrentWeight() * 280 / player.getMaxWeight();
+        g.setColor(new Color(255, 180, 50));
+        g.fillRoundRect(px + 110, py + 105, weightPercent, 12, 6, 6);
+
+        List<Item> inventory = player.getInventory();
+        int y = py + 150;
+        if (inventory.isEmpty()) {
+            g.setColor(Color.GRAY);
+            g.drawString("空空如也...", px + pw/2 - 40, y);
+        } else {
+            for (int i = 0; i < inventory.size(); i++) {
+                Item item = inventory.get(i);
+                if (y > py + ph - 50) break;
+                g.setColor(new Color(255, 220, 150));
+                g.drawString("● " + item.getName(), px + 50, y);
+                g.setColor(new Color(180, 180, 200));
+                g.drawString(item.getDescription(), px + 160, y);
+                g.setColor(Color.YELLOW);
+                g.drawString(item.getWeight() + "kg", px + 440, y);
+                y += 35;
+            }
+        }
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        g.setColor(new Color(150, 150, 200));
+        g.drawString("按 I 关闭", px + pw/2 - 30, py + ph - 30);
+    }
+
+    private void drawMessage(Graphics2D g) {
+        int w = 500, h = 50;
+        int x = (getWidth() - w) / 2;
+        int y = (getHeight() - h) / 2;
+        g.setColor(new Color(0, 0, 0, 200));
+        g.fillRoundRect(x, y, w, h, 15, 15);
+        g.setFont(new Font("微软雅黑", Font.BOLD, 16));
         g.setColor(new Color(255, 220, 100));
         FontMetrics fm = g.getFontMetrics();
-        int msgWidth = fm.stringWidth(message);
-        g.drawString(message, 400 - msgWidth / 2, 290);
+        g.drawString(message, x + (w - fm.stringWidth(message)) / 2, y + 32);
     }
 
-    // ========== 绘制物品 ==========
-    private void drawItem(Graphics2D g, int x, int y) {
-        if (itemImage != null) {
-            g.drawImage(itemImage, x, y, 32, 32, null);
-        } else {
-            g.setColor(new Color(255, 220, 100, 100));
-            g.fillOval(x - 3, y - 3, 26, 26);
-            g.setColor(new Color(255, 200, 0));
-            g.fillOval(x, y, 20, 20);
-            g.setColor(new Color(255, 255, 200));
-            g.fillOval(x + 4, y + 4, 6, 6);
-            g.setColor(Color.WHITE);
-            for (int i = 0; i < 5; i++) {
-                int angle = i * 72;
-                int dx = (int) (Math.cos(Math.toRadians(angle)) * 12);
-                int dy = (int) (Math.sin(Math.toRadians(angle)) * 12);
-                g.fillOval(x + 10 + dx - 2, y + 10 + dy - 2, 3, 3);
-            }
-        }
-    }
-
-    // ========== 绘制UI面板 ==========
-    private void drawUI(Graphics2D g) {
-        Room currentRoom = rooms.get(currentRoomIndex);
-
-        g.setColor(new Color(0, 0, 0, 180));
-        g.fillRoundRect(10, 10, 780, 110, 25, 25);
-
-        g.setColor(new Color(100, 180, 250, 180));
-        g.setStroke(new BasicStroke(2));
-        g.drawRoundRect(10, 10, 780, 110, 25, 25);
-
-        // 分数和最高分
-        g.setFont(new Font("微软雅黑", Font.BOLD, 20));
+    private void drawGameOver(Graphics2D g) {
+        g.setColor(new Color(0, 0, 0, 220));
+        g.fillRect(0, 0, getWidth(), getHeight());
+        g.setFont(new Font("微软雅黑", Font.BOLD, 48));
+        g.setColor(Color.YELLOW);
+        String msg = "🎉 通关胜利！";
+        g.drawString(msg, (getWidth() - g.getFontMetrics().stringWidth(msg)) / 2, getHeight() / 2 - 50);
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 24));
         g.setColor(Color.WHITE);
-        g.drawString("⭐ 总分: " + score, 30, 45);
-        g.drawString("🏆 最高分: " + highScore, 30, 75);
-
-        // 倒计时（颜色随剩余时间变化）
-        g.setFont(new Font("微软雅黑", Font.BOLD, 24));
-        if (timeLeft <= 10) {
-            g.setColor(Color.RED);
-        } else {
-            g.setColor(Color.WHITE);
-        }
-        g.drawString("⏱️ " + timeLeft + "秒", 250, 55);
-
-        // 当前关卡和剩余物品
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 14));
-        g.setColor(new Color(200, 200, 200));
-        g.drawString("🏠 " + currentRoom.getName() + "   📦 剩余: " + items.size(), 30, 100);
-
-        // 道具效果提示
-        int y = 75;
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-        if (speedBoostTimer > 0) {
-            g.setColor(Color.GREEN);
-            g.drawString("⚡ 加速中", 400, y);
-            y += 18;
-        }
-        if (invincibleTimer > 0) {
-            g.setColor(Color.MAGENTA);
-            g.drawString("✨ 无敌中", 400, y);
-            y += 18;
-        }
-        if (doubleScoreTimer > 0) {
-            g.setColor(Color.YELLOW);
-            g.drawString("2x 双倍分数", 400, y);
-        }
-
-        // 提示
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-        g.setColor(new Color(200, 200, 200));
-        g.drawString("方向键移动  收集完星星后进入右侧光门", 520, 55);
+        String scoreMsg = "最终得分: " + score;
+        g.drawString(scoreMsg, (getWidth() - g.getFontMetrics().stringWidth(scoreMsg)) / 2, getHeight() / 2 + 20);
+        String restart = "按 R 键重新开始";
+        g.drawString(restart, (getWidth() - g.getFontMetrics().stringWidth(restart)) / 2, getHeight() / 2 + 80);
     }
 
-    // 键盘按下
-    @Override
-    public void keyPressed(KeyEvent e) {
-        int key = e.getKeyCode();
+    private void drawItem(Graphics2D g, int x, int y) {
+        g.setColor(new Color(255, 200, 0));
+        g.fillOval(x, y, 18, 18);
+        g.setColor(new Color(255, 255, 100));
+        g.fillOval(x + 4, y + 4, 10, 10);
+    }
 
-        // 按 R 键重新开始（优先执行）
-        if (key == KeyEvent.VK_R) {
-            restartGame();
+    private void look() {
+        if (items.isEmpty()) {
+            showMessage("当前房间没有物品。", 120);
             return;
         }
-
-        // 移动控制
-        if (key == KeyEvent.VK_LEFT) leftPressed = true;
-        if (key == KeyEvent.VK_RIGHT) rightPressed = true;
-        if (key == KeyEvent.VK_UP) upPressed = true;
-        if (key == KeyEvent.VK_DOWN) downPressed = true;
+        StringBuilder sb = new StringBuilder("房间里的物品：\n");
+        int totalW = 0;
+        for (Item item : items) {
+            sb.append("  - ").append(item.getName()).append(" (").append(item.getWeight())
+                    .append("kg): ").append(item.getDescription()).append("\n");
+            totalW += item.getWeight();
+        }
+        sb.append("总重量：").append(totalW).append("kg");
+        showMessage(sb.toString(), 180);
     }
 
-    // ========== 重新开始游戏 ==========
+    private void back() {
+        if (currentRoomIndex > 0) {
+            saveCurrentRoomState();
+            currentRoomIndex--;
+            loadCurrentRoom();
+            showMessage("返回上一个房间：" + rooms.get(currentRoomIndex).getName(), 60);
+            playerX = 400;
+            playerY = 400;
+            if (player != null) player.setPosition(400, 400);
+        } else {
+            showMessage("已经在第一个房间，无法返回！", 60);
+        }
+    }
+
+    private void showItems() {
+        inventoryUIVisible = !inventoryUIVisible;
+    }
+
     private void restartGame() {
-        // 重置游戏状态
         currentRoomIndex = 0;
         score = 0;
-        timeLeft = 60;
-        gameOver = false;
+        health = maxHealth;
         levelCompleted = false;
-
-        // 重置道具效果
-        doubleScore = false;
-        doubleScoreTimer = 0;
-        speedBoostTimer = 0;
-        speed = originalSpeed;
-        invincible = false;
-        invincibleTimer = 0;
-
-        // 重置道具列表
-        if (powerUps == null) {
-            powerUps = new ArrayList<>();
-        } else {
-            powerUps.clear();
-        }
-
-        // 重新加载当前房间
+        roomStateMap.clear();
+        hasKey = false;
+        ghostMode = false;
+        ghostModeTimer = 0;
         loadCurrentRoom();
-
-        // 重新生成道具
-        resetPowerUpsForRoom();
-
-        // 重启倒计时
-        if (countdownTimer != null) {
-            countdownTimer.stop();
-        }
-        countdownTimer = new javax.swing.Timer(1000, e -> {
-            if (!gameOver && !levelCompleted && timeLeft > 0) {
-                timeLeft--;
-                repaint();
-                if (timeLeft <= 0) {
-                    gameOver = true;
-                    updateHighScore();
-                    countdownTimer.stop();
-                    showMessage("⏰ 时间到！游戏结束！", 180);
-                }
-            }
-        });
-        countdownTimer.start();
-
-        // 显示欢迎消息
-        showMessage("游戏重新开始！加油！", 60);
+        player = new Player(400, 400);
+        showMessage("游戏重新开始！", 60);
         repaint();
     }
 
-    // 键盘松开
+    @Override
+    public void keyPressed(KeyEvent e) {
+        int key = e.getKeyCode();
+        if (key == KeyEvent.VK_R) { restartGame(); return; }
+        if (key == KeyEvent.VK_LEFT || key == KeyEvent.VK_A) leftPressed = true;
+        if (key == KeyEvent.VK_RIGHT || key == KeyEvent.VK_D) rightPressed = true;
+        if (key == KeyEvent.VK_UP || key == KeyEvent.VK_W) upPressed = true;
+        if (key == KeyEvent.VK_DOWN || key == KeyEvent.VK_S) downPressed = true;
+        if (key == KeyEvent.VK_SPACE) spacePressed = true;
+        if (key == KeyEvent.VK_L) look();
+        if (key == KeyEvent.VK_B) back();
+        if (key == KeyEvent.VK_I) showItems();
+    }
+
     @Override
     public void keyReleased(KeyEvent e) {
         int key = e.getKeyCode();
-        if (key == KeyEvent.VK_LEFT) leftPressed = false;
-        if (key == KeyEvent.VK_RIGHT) rightPressed = false;
-        if (key == KeyEvent.VK_UP) upPressed = false;
-        if (key == KeyEvent.VK_DOWN) downPressed = false;
+        if (key == KeyEvent.VK_LEFT || key == KeyEvent.VK_A) leftPressed = false;
+        if (key == KeyEvent.VK_RIGHT || key == KeyEvent.VK_D) rightPressed = false;
+        if (key == KeyEvent.VK_UP || key == KeyEvent.VK_W) upPressed = false;
+        if (key == KeyEvent.VK_DOWN || key == KeyEvent.VK_S) downPressed = false;
     }
 
     @Override
     public void keyTyped(KeyEvent e) {}
+
+    // ==================== 内部类 ====================
+    class Obstacle {
+        int x, y, w, h;
+        boolean isSpike, solid;
+        Obstacle(int x, int y, int w, int h, boolean spike, boolean solid) {
+            this.x = x; this.y = y; this.w = w; this.h = h;
+            this.isSpike = spike; this.solid = solid;
+        }
+        void draw(Graphics2D g) {
+            if (isSpike) {
+                g.setColor(new Color(150, 50, 50));
+                g.fillRoundRect(x, y, w, h, 5, 5);
+                g.setColor(Color.RED);
+                g.fillOval(x + 5, y + 5, 10, 10);
+            } else {
+                g.setColor(new Color(100, 70, 40));
+                g.fillRoundRect(x, y, w, h, 8, 8);
+                g.setColor(new Color(140, 100, 60));
+                g.fillRoundRect(x + 5, y + 5, w - 10, h - 10, 5, 5);
+            }
+        }
+        Rectangle getBounds() { return new Rectangle(x, y, w, h); }
+        boolean isSpike() { return isSpike; }
+    }
+
+    class KeyDoor extends Door {
+        int roomLevel;
+        KeyDoor(int x, int y, int w, int h, String dir, int level) {
+            super(x, y, w, h, dir);
+            this.roomLevel = level;
+        }
+        int getRoomLevel() { return roomLevel; }
+        @Override
+        public void draw(Graphics2D g) {
+            g.setColor(new Color(200, 180, 100, 200));
+            g.fillRect(x, y, w, h);
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("微软雅黑", Font.BOLD, 18));
+            g.drawString("🔒", x + w/2 - 6, y + h/2 + 6);
+        }
+    }
 }

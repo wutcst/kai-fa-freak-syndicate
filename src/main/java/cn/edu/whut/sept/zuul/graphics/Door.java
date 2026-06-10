@@ -2,51 +2,49 @@ package cn.edu.whut.sept.zuul.graphics;
 
 import java.awt.*;
 
-/**
- * 门/传送门类 - 玩家碰到后切换到下一房间
- */
 public class Door {
-    private int x, y;
-    private int width, height;
-    private Color color;
-    private boolean isActive;
+    protected int x, y, w, h;   // 改为 protected，允许子类访问
+    private String direction;
+    private int dirIndex;
 
-    public Door(int x, int y, int width, int height) {
+    public Door(int x, int y, int w, int h, String direction) {
         this.x = x;
         this.y = y;
-        this.width = width;
-        this.height = height;
-        this.color = new Color(100, 200, 255, 150);
-        this.isActive = true;
-    }
-
-    public Rectangle getBounds() {
-        return new Rectangle(x, y, width, height);
+        this.w = w;
+        this.h = h;
+        this.direction = direction;
+        switch(direction) {
+            case "north": dirIndex = 0; break;
+            case "east":  dirIndex = 1; break;
+            case "south": dirIndex = 2; break;
+            case "west":  dirIndex = 3; break;
+            default: dirIndex = 1; break;
+        }
     }
 
     public void draw(Graphics2D g) {
-        if (!isActive) return;
-
-        // 绘制发光门效果
-        g.setColor(color);
-        g.fillRect(x, y, width, height);
-
-        // 边框
-        g.setColor(new Color(255, 255, 255, 200));
-        g.setStroke(new BasicStroke(3));
-        g.drawRect(x, y, width, height);
-
-        // 门文字
-        g.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        g.setColor(new Color(100, 200, 255, 180));
+        g.fillRect(x, y, w, h);
         g.setColor(Color.WHITE);
-        g.drawString("→ 下一关 →", x + 15, y + 30);
+        g.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        String arrow = "→";
+        if (direction.equals("north")) arrow = "↑";
+        if (direction.equals("south")) arrow = "↓";
+        if (direction.equals("west")) arrow = "←";
+        FontMetrics fm = g.getFontMetrics();
+        int arrowWidth = fm.stringWidth(arrow);
+        g.drawString(arrow, x + w/2 - arrowWidth/2, y + h/2 + 5);
     }
 
-    public void setActive(boolean active) {
-        isActive = active;
+    public Rectangle getBounds() {
+        return new Rectangle(x, y, w, h);
     }
 
-    public boolean isActive() {
-        return isActive;
+    public int getDirectionIndex() {
+        return dirIndex;
+    }
+
+    public String getDirection() {
+        return direction;
     }
 }
