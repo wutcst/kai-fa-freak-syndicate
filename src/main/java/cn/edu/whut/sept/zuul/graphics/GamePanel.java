@@ -30,6 +30,10 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private String message;                // 提示消息
     private int messageTimer;              // 消息显示计时器
 
+    // ========== 新增：敌人系统相关变量 ==========
+    private boolean invincible = false;      // 无敌状态
+    private int invincibleTimer = 0;         // 无敌计时器（帧数）
+
     // 图片变量
     private BufferedImage playerImage;
     private BufferedImage backgroundImage;
@@ -66,28 +70,37 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private void initRooms() {
         rooms = new ArrayList<>();
 
-        // 房间1：新手关卡，3个物品
+        // 房间1：新手关卡，3个物品，1个敌人
         Room room1 = new Room("新手森林", new Color(25, 60, 30), 1);
         room1.addItem(new Item("金色徽章", 100, 200));
         room1.addItem(new Item("魔法水晶", 500, 300));
         room1.addItem(new Item("生命药水", 300, 450));
+        // 添加1个敌人
+        room1.addEnemy(new Enemy(300, 250, 2));
         rooms.add(room1);
 
-        // 房间2：进阶关卡，4个物品，蓝色调
+        // 房间2：进阶关卡，4个物品，2个敌人
         Room room2 = new Room("冰霜洞穴", new Color(30, 40, 80), 2);
         room2.addItem(new Item("冰晶碎片", 150, 180));
         room2.addItem(new Item("霜之精华", 400, 120));
         room2.addItem(new Item("寒冰宝石", 620, 350));
         room2.addItem(new Item("暴风核心", 250, 520));
+        // 添加2个敌人
+        room2.addEnemy(new Enemy(200, 200, 2));
+        room2.addEnemy(new Enemy(600, 400, 3));
         rooms.add(room2);
 
-        // 房间3：困难关卡，5个物品，红色调
+        // 房间3：困难关卡，5个物品，3个敌人
         Room room3 = new Room("烈焰深渊", new Color(80, 30, 20), 3);
         room3.addItem(new Item("火焰符文", 120, 250));
         room3.addItem(new Item("熔岩之心", 550, 180));
         room3.addItem(new Item("凤凰羽毛", 380, 380));
         room3.addItem(new Item("龙鳞碎片", 680, 480));
         room3.addItem(new Item("永恒之火", 200, 80));
+        // 添加3个敌人
+        room3.addEnemy(new Enemy(100, 150, 3));
+        room3.addEnemy(new Enemy(500, 200, 3));
+        room3.addEnemy(new Enemy(350, 500, 4));
         rooms.add(room3);
 
         // 可以继续添加更多房间...
@@ -206,6 +219,17 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         // ========== 新增：检查是否碰到门 ==========
         checkDoorEntry();
 
+        // ========== 新增：更新所有敌人位置 ==========
+        Room currentRoom = rooms.get(currentRoomIndex);
+        for (Enemy enemy : currentRoom.getEnemies()) {
+            enemy.move();
+            enemy.bounceIfNeeded(800, 600);
+        }
+
+        // ========== 新增：检查玩家与敌人的碰撞 ==========
+        checkEnemyCollision();
+
+
         // 更新消息计时器
         if (messageTimer > 0) {
             messageTimer--;
@@ -214,6 +238,33 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         repaint();
     }
 
+    // ========== 新增：检查玩家与敌人碰撞 ==========
+    private void checkEnemyCollision() {
+        if (invincible) return;  // 无敌时不检测碰撞
+
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+        Room currentRoom = rooms.get(currentRoomIndex);
+
+        for (Enemy enemy : currentRoom.getEnemies()) {
+            if (playerRect.intersects(enemy.getBounds())) {
+                // 扣10分（不低于0）
+                score -= 10;
+                if (score < 0) score = 0;
+
+                // 重置玩家位置到起点
+                playerX = 400;
+                playerY = 500;
+
+                // 进入无敌状态（1秒 = 60帧）
+                invincible = true;
+                invincibleTimer = 60;
+
+                // 显示扣分提示
+                showMessage("💀 被敌人攻击！-10分！", 40);
+                break;  // 一次只触发一个敌人碰撞
+            }
+        }
+    }
     // 修改：检查并处理物品拾取（增加房间内收集计数）
     private void checkPickup() {
         Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
@@ -284,6 +335,12 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         // 画物品
         for (Item item : items) {
             drawItem(g2d, item.getX(), item.getY());
+        }
+
+        // ========== 新增：画所有敌人 ==========
+        Room currentRoom = rooms.get(currentRoomIndex);
+        for (Enemy enemy : currentRoom.getEnemies()) {
+            enemy.draw(g2d);
         }
 
         // 画玩家
