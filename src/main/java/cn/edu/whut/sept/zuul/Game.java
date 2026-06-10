@@ -1,3 +1,5 @@
+package cn.edu.whut.sept.zuul;
+
 /**
  * 该类是“World-of-Zuul”应用程序的主类。
  * 《World of Zuul》是一款简单的文本冒险游戏。用户可以在一些房间组成的迷宫中探险。
@@ -11,10 +13,9 @@
  * @author  Michael Kölling and David J. Barnes
  * @version 1.0
  */
-package cn.edu.whut.sept.zuul;
-
 public class Game
 {
+    private Player player;
     private Parser parser;
     private Room currentRoom;
 
@@ -22,6 +23,7 @@ public class Game
     {
         createRooms();
         parser = new Parser();
+        player = new Player("玩家", currentRoom);
     }
 
     private void createRooms()
@@ -62,24 +64,19 @@ public class Game
         boolean finished = false;
         while (! finished) {
             Command command = parser.getCommand();
-            if(command == null) {
-                System.out.println("I don't understand...");
-            } else {
-                finished = command.execute(this);
-            }
+            finished = command.execute(this);
         }
-
         System.out.println("Thank you for playing.  Good bye.");
     }
 
     private void printWelcome()
     {
         System.out.println();
-        System.out.println("Welcome to the World of Zuul!");
-        System.out.println("World of Zuul is a new, incredibly boring adventure game.");
-        System.out.println("Type 'help' if you need help.");
+        System.out.println("欢迎来到 Zuul 世界！");
+        System.out.println("Zuul 世界是一个新的，非常无聊的冒险游戏。");
+        System.out.println("输入 'help' 如果你需要帮助。");
         System.out.println();
-        System.out.println(currentRoom.getLongDescription());
+        System.out.println(player.getCurrentRoom().getLongDescription());
     }
 
     public Room getCurrentRoom() {
@@ -88,5 +85,9 @@ public class Game
 
     public void setCurrentRoom(Room room){
         this.currentRoom = room;
+    }
+
+    public Player getPlayer() {
+        return player;
     }
 }
