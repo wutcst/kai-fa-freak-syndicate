@@ -8,6 +8,11 @@ import java.util.List;
 import java.util.Random;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
 
 public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
@@ -55,6 +60,10 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private BufferedImage backgroundImage;
     private BufferedImage itemImage;
 
+    // ========== 最高分存档 ==========
+    private int highScore = 0;               // 最高分
+    private String highScoreFile = "highscore.dat";  // 存档文件名
+
     public GamePanel() {
         setPreferredSize(new Dimension(800, 600));
         setBackground(Color.BLACK);
@@ -83,6 +92,9 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         // 加载图片资源
         loadImages();
 
+        // 加载最高分
+        loadHighScore();
+
         timer = new Timer(1000 / 60, this);
         timer.start();
         setFocusable(true);
@@ -95,6 +107,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
                 repaint();
                 if (timeLeft <= 0) {
                     gameOver = true;
+                    updateHighScore();
                     countdownTimer.stop();
                     showMessage("⏰ 时间到！游戏结束！", 180);
                 }
@@ -165,7 +178,6 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     }
 
     // ========== 加载当前房间 ==========
-    // ========== 加载当前房间 ==========
     private void loadCurrentRoom() {
         Room currentRoom = rooms.get(currentRoomIndex);
         // 复制当前房间的物品列表
@@ -199,6 +211,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         // 检查是否是最后一关
         if (currentRoomIndex + 1 >= rooms.size()) {
             gameOver = true;
+            updateHighScore();
             countdownTimer.stop();
             showMessage("🎉 恭喜你完成了所有关卡！总分数: " + score + " 🎉", 180);
             levelCompleted = true;
@@ -509,25 +522,74 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
     }
 
+    // ========== 加载最高分 ==========
+    private void loadHighScore() {
+        try {
+            File file = new File(highScoreFile);
+            if (file.exists()) {
+                BufferedReader reader = new BufferedReader(new FileReader(file));
+                String line = reader.readLine();
+                if (line != null) {
+                    highScore = Integer.parseInt(line);
+                }
+                reader.close();
+                System.out.println("加载最高分: " + highScore);
+            } else {
+                highScore = 0;
+                System.out.println("没有存档文件，最高分初始为0");
+            }
+        } catch (Exception e) {
+            System.out.println("加载最高分失败：" + e.getMessage());
+            highScore = 0;
+        }
+    }
+
+    // ========== 保存最高分 ==========
+    private void saveHighScore() {
+        try {
+            BufferedWriter writer = new BufferedWriter(new FileWriter(highScoreFile));
+            writer.write(String.valueOf(highScore));
+            writer.close();
+            System.out.println("保存最高分: " + highScore);
+        } catch (Exception e) {
+            System.out.println("保存最高分失败：" + e.getMessage());
+        }
+    }
+
+    // ========== 更新最高分 ==========
+    private void updateHighScore() {
+        if (score > highScore) {
+            highScore = score;
+            saveHighScore();
+        }
+    }
+
     // ========== 绘制游戏结束画面 ==========
     private void drawGameOver(Graphics2D g) {
-        g.setColor(new Color(0, 0, 0, 200));
+        g.setColor(new Color(0, 0, 0, 220));
         g.fillRect(0, 0, 800, 600);
+
         g.setFont(new Font("微软雅黑", Font.BOLD, 48));
+
         if (timeLeft <= 0 && !levelCompleted) {
             g.setColor(Color.RED);
-            g.drawString("⏰ 时间到！", 280, 280);
-        } else if (levelCompleted && currentRoomIndex + 1 >= rooms.size()) {
+            g.drawString("⏰ 时间到！", 280, 200);
+        } else if (levelCompleted || currentRoomIndex + 1 >= rooms.size()) {
             g.setColor(Color.YELLOW);
-            g.drawString("🎉 通关胜利！", 280, 280);
+            g.drawString("🎉 通关胜利！", 280, 200);
         } else {
             g.setColor(Color.RED);
-            g.drawString("💀 游戏结束", 300, 280);
+            g.drawString("💀 游戏结束", 300, 200);
         }
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 20));
+
+        // 显示本次得分和最高分
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 24));
         g.setColor(Color.WHITE);
-        g.drawString("最终得分: " + score, 340, 350);
-        g.drawString("按 R 键重新开始", 330, 420);
+        g.drawString("本次得分: " + score, 310, 300);
+        g.drawString("最高分: " + highScore, 310, 350);
+
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 20));
+        g.drawString("按 R 键重新开始", 320, 450);
     }
 
     // ========== 绘制临时消息 ==========
@@ -573,10 +635,11 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         g.setStroke(new BasicStroke(2));
         g.drawRoundRect(10, 10, 780, 110, 25, 25);
 
-        // 分数
-        g.setFont(new Font("微软雅黑", Font.BOLD, 24));
+        // 分数和最高分
+        g.setFont(new Font("微软雅黑", Font.BOLD, 20));
         g.setColor(Color.WHITE);
         g.drawString("⭐ 总分: " + score, 30, 45);
+        g.drawString("🏆 最高分: " + highScore, 30, 75);
 
         // 倒计时（颜色随剩余时间变化）
         g.setFont(new Font("微软雅黑", Font.BOLD, 24));
@@ -585,15 +648,15 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         } else {
             g.setColor(Color.WHITE);
         }
-        g.drawString("⏱️ " + timeLeft + "秒", 250, 45);
+        g.drawString("⏱️ " + timeLeft + "秒", 250, 55);
 
         // 当前关卡和剩余物品
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 16));
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 14));
         g.setColor(new Color(200, 200, 200));
-        g.drawString("🏠 " + currentRoom.getName() + "   📦 剩余: " + items.size(), 30, 80);
+        g.drawString("🏠 " + currentRoom.getName() + "   📦 剩余: " + items.size(), 30, 100);
 
         // 道具效果提示
-        int y = 80;
+        int y = 75;
         g.setFont(new Font("微软雅黑", Font.PLAIN, 12));
         if (speedBoostTimer > 0) {
             g.setColor(Color.GREEN);
@@ -611,7 +674,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
 
         // 提示
-        g.setFont(new Font("微软雅黑", Font.PLAIN, 14));
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 12));
         g.setColor(new Color(200, 200, 200));
         g.drawString("方向键移动  收集完星星后进入右侧光门", 520, 55);
     }
@@ -674,6 +737,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
                 repaint();
                 if (timeLeft <= 0) {
                     gameOver = true;
+                    updateHighScore();
                     countdownTimer.stop();
                     showMessage("⏰ 时间到！游戏结束！", 180);
                 }
@@ -685,6 +749,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         showMessage("游戏重新开始！加油！", 60);
         repaint();
     }
+
     // 键盘松开
     @Override
     public void keyReleased(KeyEvent e) {
