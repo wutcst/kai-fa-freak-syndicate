@@ -18,8 +18,17 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private boolean leftPressed, rightPressed, upPressed, downPressed;
 
     // 物品系统相关变量
-    private List<Item> items;
-    private int score;
+    private List<Item> items;      // 当前房间的物品
+    private int score;             // 总分（所有房间累计）
+
+    // ========== 新增：多房间系统 ==========
+    private List<Room> rooms;              // 所有房间列表
+    private int currentRoomIndex;          // 当前房间索引（0=第1关）
+    private Door door;                     // 传送门
+    private int itemsCollectedInRoom;      // 当前房间收集的物品数
+    private boolean levelCompleted;        // 当前关卡是否已完成（防止重复进门）
+    private String message;                // 提示消息
+    private int messageTimer;              // 消息显示计时器
 
     // 图片变量
     private BufferedImage playerImage;
@@ -32,12 +41,118 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         setFocusable(true);
         addKeyListener(this);
 
-        // 初始化物品和分数
-        items = new ArrayList<>();
-        score = 0;
-        initItems();
+        // 初始化多房间系统
+        initRooms();
 
-        // 加载玩家图片
+        // 初始化当前房间（第1关）
+        currentRoomIndex = 0;
+        itemsCollectedInRoom = 0;
+        levelCompleted = false;
+        message = "";
+        messageTimer = 0;
+        loadCurrentRoom();
+
+        // 创建传送门（右侧）
+        door = new Door(750, 250, 40, 100);
+
+        // 加载图片资源
+        loadImages();
+
+        timer = new Timer(1000 / 60, this);
+        timer.start();
+    }
+
+    // ========== 新增：初始化所有房间 ==========
+    private void initRooms() {
+        rooms = new ArrayList<>();
+
+        // 房间1：新手关卡，3个物品
+        Room room1 = new Room("新手森林", new Color(25, 60, 30), 1);
+        room1.addItem(new Item("金色徽章", 100, 200));
+        room1.addItem(new Item("魔法水晶", 500, 300));
+        room1.addItem(new Item("生命药水", 300, 450));
+        rooms.add(room1);
+
+        // 房间2：进阶关卡，4个物品，蓝色调
+        Room room2 = new Room("冰霜洞穴", new Color(30, 40, 80), 2);
+        room2.addItem(new Item("冰晶碎片", 150, 180));
+        room2.addItem(new Item("霜之精华", 400, 120));
+        room2.addItem(new Item("寒冰宝石", 620, 350));
+        room2.addItem(new Item("暴风核心", 250, 520));
+        rooms.add(room2);
+
+        // 房间3：困难关卡，5个物品，红色调
+        Room room3 = new Room("烈焰深渊", new Color(80, 30, 20), 3);
+        room3.addItem(new Item("火焰符文", 120, 250));
+        room3.addItem(new Item("熔岩之心", 550, 180));
+        room3.addItem(new Item("凤凰羽毛", 380, 380));
+        room3.addItem(new Item("龙鳞碎片", 680, 480));
+        room3.addItem(new Item("永恒之火", 200, 80));
+        rooms.add(room3);
+
+        // 可以继续添加更多房间...
+    }
+
+    // ========== 新增：加载当前房间 ==========
+    private void loadCurrentRoom() {
+        Room currentRoom = rooms.get(currentRoomIndex);
+        // 复制当前房间的物品列表（使用新列表，避免引用问题）
+        items = new ArrayList<>();
+        for (Item item : currentRoom.getItems()) {
+            items.add(item);
+        }
+        // 重置玩家位置
+        playerX = 400;
+        playerY = 500;
+        // 重置关卡完成标志
+        levelCompleted = false;
+        // 显示欢迎消息
+        showMessage("进入 " + currentRoom.getName() + "！收集所有星星！", 120);
+    }
+
+    // ========== 新增：切换到下一房间 ==========
+    private void switchToNextRoom() {
+        if (levelCompleted) return; // 防止重复切换
+
+        // 检查是否是最后一关
+        if (currentRoomIndex + 1 >= rooms.size()) {
+            showMessage("🎉 恭喜你完成了所有关卡！总分数: " + score + " 🎉", 180);
+            levelCompleted = true;
+            return;
+        }
+
+        // 切换到下一关
+        currentRoomIndex++;
+        loadCurrentRoom();
+        itemsCollectedInRoom = 0;  // 重置本关收集计数
+        showMessage("⭐ 进入第 " + (currentRoomIndex + 1) + " 关！难度提升！⭐", 120);
+    }
+
+    // ========== 新增：显示临时消息 ==========
+    private void showMessage(String msg, int duration) {
+        message = msg;
+        messageTimer = duration;
+    }
+
+    // ========== 新增：检查是否碰到门 ==========
+    private void checkDoorEntry() {
+        if (levelCompleted) return;
+
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+        if (door.getBounds().intersects(playerRect)) {
+            // 检查是否收集完本关所有物品
+            Room currentRoom = rooms.get(currentRoomIndex);
+            if (items.isEmpty()) {
+                // 物品收集完毕，可以进入下一关
+                switchToNextRoom();
+            } else {
+                showMessage("还需要收集 " + items.size() + " 个星星才能进入下一关！", 60);
+            }
+        }
+    }
+
+    // ========== 新增：加载图片资源（重构原构造方法中的代码）==========
+    private void loadImages() {
         try {
             playerImage = ImageIO.read(getClass().getResource("/player.png"));
             if (playerImage == null) {
@@ -47,7 +162,6 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             System.out.println("玩家图片加载失败：" + e.getMessage());
         }
 
-        // 加载背景图片
         try {
             backgroundImage = ImageIO.read(getClass().getResource("/background.png"));
             if (backgroundImage == null) {
@@ -57,7 +171,6 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             System.out.println("背景图片加载失败：" + e.getMessage());
         }
 
-        // 加载物品图片
         try {
             itemImage = ImageIO.read(getClass().getResource("/item.png"));
             if (itemImage == null) {
@@ -66,18 +179,11 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         } catch (Exception e) {
             System.out.println("物品图片加载失败：" + e.getMessage());
         }
-
-        timer = new Timer(1000 / 60, this);
-        timer.start();
     }
 
-    // 初始化地图上的物品
+    // 修改：初始化物品的方法（现在由loadCurrentRoom处理）
     private void initItems() {
-        items.add(new Item("金色徽章", 100, 200));
-        items.add(new Item("魔法水晶", 300, 100));
-        items.add(new Item("古老卷轴", 600, 400));
-        items.add(new Item("生命药水", 150, 500));
-        items.add(new Item("神秘钥匙", 650, 150));
+        // 不再使用，保留空方法避免编译错误
     }
 
     @Override
@@ -97,10 +203,18 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         // 检查是否拾取物品
         checkPickup();
 
+        // ========== 新增：检查是否碰到门 ==========
+        checkDoorEntry();
+
+        // 更新消息计时器
+        if (messageTimer > 0) {
+            messageTimer--;
+        }
+
         repaint();
     }
 
-    // 检查并处理物品拾取
+    // 修改：检查并处理物品拾取（增加房间内收集计数）
     private void checkPickup() {
         Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
         Item toRemove = null;
@@ -109,12 +223,34 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             if (playerRect.intersects(item.getBounds())) {
                 toRemove = item;
                 score++;
+                itemsCollectedInRoom++;
                 break;
             }
         }
 
         if (toRemove != null) {
             items.remove(toRemove);
+            showMessage("+1 星星！ 本关剩余: " + items.size(), 30);
+        }
+    }
+
+    // 修改：绘制背景（根据当前房间颜色）
+    private void drawBackground(Graphics2D g) {
+        // 所有关卡都使用同一张背景图片
+        if (backgroundImage != null) {
+            g.drawImage(backgroundImage, 0, 0, 800, 600, null);
+        } else {
+            // 如果图片加载失败，才使用渐变色背景
+            Room currentRoom = rooms.get(currentRoomIndex);
+            Color startColor = currentRoom.getBackgroundColor();
+            Color endColor = new Color(
+                    startColor.getRed() / 2,
+                    startColor.getGreen() / 2,
+                    startColor.getBlue() / 2
+            );
+            GradientPaint gradient = new GradientPaint(0, 0, startColor, 0, 600, endColor);
+            g.setPaint(gradient);
+            g.fillRect(0, 0, 800, 600);
         }
     }
 
@@ -123,18 +259,8 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         super.paintComponent(g);
         Graphics2D g2d = (Graphics2D) g;
 
-        // ========== 1. 背景图片 ==========
-        if (backgroundImage != null) {
-            g2d.drawImage(backgroundImage, 0, 0, 800, 600, null);
-        } else {
-            // 图片加载失败时使用渐变背景
-            GradientPaint gradient = new GradientPaint(
-                    0, 0, new Color(25, 35, 60),
-                    0, 600, new Color(10, 15, 30)
-            );
-            g2d.setPaint(gradient);
-            g2d.fillRect(0, 0, 800, 600);
-        }
+        // ========== 1. 背景（支持多房间不同颜色）==========
+        drawBackground(g2d);
 
         // ========== 2. 网格线（可选，透明度降低）==========
         g2d.setColor(new Color(255, 255, 255, 30));
@@ -152,6 +278,9 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             g2d.fillOval(x, y, 2, 2);
         }
 
+        // ========== 4. 画门 ==========
+        door.draw(g2d);
+
         // 画物品
         for (Item item : items) {
             drawItem(g2d, item.getX(), item.getY());
@@ -167,6 +296,25 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
         // 画UI
         drawUI(g2d);
+
+        // 画临时消息
+        if (messageTimer > 0 && !message.isEmpty()) {
+            drawMessage(g2d);
+        }
+    }
+
+    // ========== 新增：绘制临时消息 ==========
+    private void drawMessage(Graphics2D g) {
+        // 半透明背景
+        g.setColor(new Color(0, 0, 0, 200));
+        g.fillRoundRect(200, 250, 400, 60, 20, 20);
+
+        // 消息文字
+        g.setFont(new Font("微软雅黑", Font.BOLD, 18));
+        g.setColor(new Color(255, 220, 100));
+        FontMetrics fm = g.getFontMetrics();
+        int msgWidth = fm.stringWidth(message);
+        g.drawString(message, 400 - msgWidth / 2, 290);
     }
 
     // 绘制物品
@@ -191,26 +339,33 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
     }
 
-    // 绘制UI面板
+    // 修改：绘制UI面板（增加当前关卡显示）
     private void drawUI(Graphics2D g) {
+        Room currentRoom = rooms.get(currentRoomIndex);
+
         // 半透明主面板
         g.setColor(new Color(0, 0, 0, 180));
-        g.fillRoundRect(10, 10, 780, 70, 25, 25);
+        g.fillRoundRect(10, 10, 780, 90, 25, 25);
 
         // 发光边框
         g.setColor(new Color(100, 180, 250, 180));
         g.setStroke(new BasicStroke(2));
-        g.drawRoundRect(10, 10, 780, 70, 25, 25);
+        g.drawRoundRect(10, 10, 780, 90, 25, 25);
 
-        // 分数
+        // 分数（总分）
         g.setFont(new Font("微软雅黑", Font.BOLD, 24));
         g.setColor(Color.WHITE);
-        g.drawString("⭐ " + score, 30, 55);
+        g.drawString("⭐ 总分: " + score, 30, 50);
 
-        // 提示
+        // 当前关卡和剩余物品
         g.setFont(new Font("微软雅黑", Font.PLAIN, 16));
         g.setColor(new Color(200, 200, 200));
-        g.drawString("方向键移动  收集星星", 580, 55);
+        g.drawString("🏠 " + currentRoom.getName() + "   📦 剩余: " + items.size(), 30, 80);
+
+        // 提示
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 14));
+        g.setColor(new Color(200, 200, 200));
+        g.drawString("方向键移动  收集完星星后进入右侧光门", 520, 55);
     }
 
     // 键盘按下
