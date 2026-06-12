@@ -1,24 +1,23 @@
 package cn.edu.whut.sept.zuul.graphics;
 
-import java.awt.*;
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
 
 public class Room {
     private String name;
     private Color backgroundColor;
+    private int level;
     private List<Item> items;
-    private List<Enemy> enemies;
-    private int roomLevel;
 
-    public Room(String name, Color backgroundColor, int roomLevel) {
+    public Room(String name, Color bgColor, int levelNum) {
         this.name = name;
-        this.backgroundColor = backgroundColor;
-        this.roomLevel = roomLevel;
-        this.items = new ArrayList<>();
-        this.enemies = new ArrayList<>();
+        this.backgroundColor = bgColor;
+        this.level = levelNum;
+        items = new ArrayList<>();
     }
 
+    // Getter方法，解决找不到符号
     public String getName() {
         return name;
     }
@@ -27,31 +26,15 @@ public class Room {
         return backgroundColor;
     }
 
+    public int getLevel() {
+        return level;
+    }
+
     public List<Item> getItems() {
         return items;
     }
 
     public void addItem(Item item) {
         items.add(item);
-    }
-
-    public List<Enemy> getEnemies() {
-        return enemies;
-    }
-
-    public void addEnemy(Enemy enemy) {
-        enemies.add(enemy);
-    }
-
-    public int getRoomLevel() {
-        return roomLevel;
-    }
-
-    public int getItemCount() {
-        return items.size();
-    }
-
-    public int getEnemyCount() {
-        return enemies.size();
     }
 }
