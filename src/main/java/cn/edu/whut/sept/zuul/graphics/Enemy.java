@@ -1,61 +1,76 @@
 package cn.edu.whut.sept.zuul.graphics;
 
 import java.awt.*;
-import java.util.Random;
 
-/**
- * 敌人类 - 在房间内移动，碰到玩家会扣分
- */
 public class Enemy {
     private int x, y;
     private int width = 35, height = 35;
-    private int dx, dy;  // 移动速度方向
-    private int speed = 2;
-    private Color color;
-    private Random random;
+    private double speed;  // 敌人自己的固定速度
+    private String name;
+    private Color normalColor;
+    private Color stunnedColor;
+    private boolean isStunned;
+    private int stunTimer;
 
-    public Enemy(int x, int y) {
+    // 玩家最大速度常量（5）
+    private static final int PLAYER_MAX_SPEED = 5;
+
+    public Enemy(int startX, int startY) {
+        this.x = startX;
+        this.y = startY;
+        this.name = "红色追击者";
+        this.normalColor = new Color(200, 50, 50);
+        this.stunnedColor = new Color(100, 100, 200);
+        // 敌人速度 = 玩家最大速度的0.7倍
+        this.speed = PLAYER_MAX_SPEED * 0.7;  // 5 * 0.7 = 3.5
+        this.isStunned = false;
+        this.stunTimer = 0;
+    }
+
+    public int getX() { return x; }
+    public int getY() { return y; }
+    public int getWidth() { return width; }
+    public int getHeight() { return height; }
+    public double getSpeed() { return speed; }
+    public boolean isStunned() { return isStunned; }
+
+    public void setPosition(int x, int y) {
         this.x = x;
         this.y = y;
-        this.random = new Random();
-        // 随机初始方向
-        this.dx = (random.nextBoolean() ? 1 : -1) * speed;
-        this.dy = (random.nextBoolean() ? 1 : -1) * speed;
-        this.color = new Color(200, 50, 50);  // 暗红色
+    }
+
+    public void stun(int duration) {
+        this.isStunned = true;
+        this.stunTimer = duration;
+    }
+
+    public void updateStun() {
+        if (isStunned) {
+            stunTimer--;
+            if (stunTimer <= 0) {
+                isStunned = false;
+                stunTimer = 0;
+            }
+        }
     }
 
     /**
-     * 带速度参数的构造方法（用于控制难度）
+     * 向玩家方向移动（使用自己的固定速度）
      */
-    public Enemy(int x, int y, int speed) {
-        this(x, y);
-        this.speed = speed;
-        this.dx = (random.nextBoolean() ? 1 : -1) * speed;
-        this.dy = (random.nextBoolean() ? 1 : -1) * speed;
-    }
+    public void moveTowardsPlayer(int playerX, int playerY) {
+        if (isStunned) return;
 
-    public void move() {
-        x += dx;
-        y += dy;
-    }
+        double dx = playerX - x;
+        double dy = playerY - y;
 
-    public void bounceIfNeeded(int panelWidth, int panelHeight) {
-        // 边界反弹（考虑敌人大小）
-        if (x < 0) {
-            x = 0;
-            dx = -dx;
-        }
-        if (x > panelWidth - width) {
-            x = panelWidth - width;
-            dx = -dx;
-        }
-        if (y < 0) {
-            y = 0;
-            dy = -dy;
-        }
-        if (y > panelHeight - height) {
-            y = panelHeight - height;
-            dy = -dy;
+        double distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 0) {
+            double moveX = (dx / distance) * speed;
+            double moveY = (dy / distance) * speed;
+
+            x += (int) Math.round(moveX);
+            y += (int) Math.round(moveY);
         }
     }
 
@@ -64,33 +79,48 @@ public class Enemy {
     }
 
     public void draw(Graphics2D g) {
-        // 绘制敌人（红色圆形 + 邪恶眼睛）
-        g.setColor(color);
-        g.fillOval(x, y, width, height);
+        if (isStunned) {
+            g.setColor(stunnedColor);
+        } else {
+            g.setColor(normalColor);
+        }
 
-        // 眼睛（白色底）
+        g.fillRoundRect(x, y, width, height, 8, 8);
+
+        if (isStunned) {
+            g.setColor(new Color(255, 255, 100));
+            g.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 18));
+            g.drawString("⭐", x - 8, y + 10);
+            g.drawString("⭐", x + width + 2, y + 10);
+            g.drawString("⭐", x + width/2 - 9, y - 8);
+        }
+
         g.setColor(Color.WHITE);
         g.fillOval(x + 8, y + 10, 8, 8);
-        g.fillOval(x + 19, y + 10, 8, 8);
+        g.fillOval(x + width - 16, y + 10, 8, 8);
 
-        // 瞳孔（黑色）
-        g.setColor(Color.BLACK);
-        g.fillOval(x + 10, y + 12, 4, 4);
-        g.fillOval(x + 21, y + 12, 4, 4);
+        if (isStunned) {
+            g.setColor(new Color(80, 80, 120));
+            g.drawOval(x + 9, y + 12, 5, 5);
+            g.drawOval(x + width - 15, y + 12, 5, 5);
 
-        // 眉毛（凶狠）
-        g.setColor(Color.BLACK);
-        g.drawLine(x + 6, y + 6, x + 12, y + 8);
-        g.drawLine(x + 23, y + 6, x + 29, y + 8);
+            g.setColor(new Color(180, 180, 255));
+            g.setFont(new Font("微软雅黑", Font.BOLD, 10));
+            g.drawString("Z", x + width - 8, y - 5);
+            g.drawString("Z", x + width - 14, y - 10);
+            g.drawString("Z", x + width - 20, y - 15);
+        } else {
+            g.setColor(Color.BLACK);
+            g.fillOval(x + 10, y + 12, 4, 4);
+            g.fillOval(x + width - 14, y + 12, 4, 4);
 
-        // 嘴巴
-        g.setColor(new Color(80, 0, 0));
-        g.fillArc(x + 10, y + 22, 15, 10, 180, 180);
+            g.setStroke(new BasicStroke(2));
+            g.drawLine(x + 6, y + 6, x + 12, y + 8);
+            g.drawLine(x + width - 12, y + 6, x + width - 6, y + 8);
+
+            g.setColor(Color.BLACK);
+            g.setFont(new Font("微软雅黑", Font.BOLD, 12));
+            g.drawString("危", x + width/2 - 6, y + height - 8);
+        }
     }
-
-    // Getters
-    public int getX() { return x; }
-    public int getY() { return y; }
-    public int getWidth() { return width; }
-    public int getHeight() { return height; }
 }

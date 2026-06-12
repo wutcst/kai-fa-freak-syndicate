@@ -19,8 +19,17 @@ public class Door {
             case "south": dirIndex = 2; break;
             case "west":  dirIndex = 3; break;
             default: dirIndex = 1; break;
+
         }
     }
+
+
+
+    public void setPosition(int x, int y) {
+        this.x = x;
+        this.y = y;
+    }
+
 
     public void draw(Graphics2D g) {
         g.setColor(new Color(100, 200, 255, 180));

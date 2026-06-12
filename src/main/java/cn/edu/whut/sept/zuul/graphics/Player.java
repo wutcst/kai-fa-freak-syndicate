@@ -12,7 +12,7 @@ public class Player {
 
     // 背包和负重系统
     private List<Item> inventory;
-    private int maxWeight = 20;
+    private int maxWeight = 30;
     private int currentWeight = 0;
 
     // 玩家基本信息

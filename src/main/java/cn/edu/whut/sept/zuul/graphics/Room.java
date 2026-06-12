@@ -1,22 +1,20 @@
 package cn.edu.whut.sept.zuul.graphics;
 
-import java.awt.*;
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
 
 public class Room {
     private String name;
     private Color backgroundColor;
-    private List<Item> items;
-    private List<Enemy> enemies;
-    private int roomLevel;
+    private int level;
+    private List<Item> items;  // 已经是List，天然支持重复物品
 
-    public Room(String name, Color backgroundColor, int roomLevel) {
+    public Room(String name, Color bgColor, int levelNum) {
         this.name = name;
-        this.backgroundColor = backgroundColor;
-        this.roomLevel = roomLevel;
-        this.items = new ArrayList<>();
-        this.enemies = new ArrayList<>();
+        this.backgroundColor = bgColor;
+        this.level = levelNum;
+        items = new ArrayList<>();
     }
 
     public String getName() {
@@ -27,6 +25,10 @@ public class Room {
         return backgroundColor;
     }
 
+    public int getLevel() {
+        return level;
+    }
+
     public List<Item> getItems() {
         return items;
     }
@@ -35,23 +37,8 @@ public class Room {
         items.add(item);
     }
 
-    public List<Enemy> getEnemies() {
-        return enemies;
-    }
-
-    public void addEnemy(Enemy enemy) {
-        enemies.add(enemy);
-    }
-
-    public int getRoomLevel() {
-        return roomLevel;
-    }
-
-    public int getItemCount() {
-        return items.size();
-    }
-
-    public int getEnemyCount() {
-        return enemies.size();
+    // 清空物品（用于重新生成）
+    public void clearItems() {
+        items.clear();
     }
 }
