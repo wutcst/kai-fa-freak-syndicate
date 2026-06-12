@@ -8,7 +8,7 @@ public class Room {
     private String name;
     private Color backgroundColor;
     private int level;
-    private List<Item> items;
+    private List<Item> items;  // 已经是List，天然支持重复物品
 
     public Room(String name, Color bgColor, int levelNum) {
         this.name = name;
@@ -17,7 +17,6 @@ public class Room {
         items = new ArrayList<>();
     }
 
-    // Getter方法，解决找不到符号
     public String getName() {
         return name;
     }
@@ -36,5 +35,10 @@ public class Room {
 
     public void addItem(Item item) {
         items.add(item);
+    }
+
+    // 清空物品（用于重新生成）
+    public void clearItems() {
+        items.clear();
     }
 }

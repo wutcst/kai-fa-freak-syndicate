@@ -67,6 +67,20 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private JPanel bottomPanel;
     private JPanel gameCanvas;
 
+    // 在现有变量声明后添加
+    private List<Enemy> enemies;      // 敌人列表
+    private boolean gameOverByEnemy;  // 是否被敌人击杀
+    private int invincibleFrames = 0;      // 无敌帧计数（受伤后短暂无敌）
+    private static final int INVINCIBLE_DURATION = 30;  // 无敌持续时间（约0.5秒，60帧）
+    private int stunTimer = 0;           // 敌人眩晕计时
+    private static final int STUN_DURATION = 180;  // 眩晕持续时间（3秒，60帧 * 3 = 180）
+    private int minSpeed = 2;                // 最慢速度（负重满时）
+    private int currentSpeed = 5;            // 当前速度
+    private boolean ignoreWeight = false;  // 新增：是否无视负重
+    private int ignoreWeightTimer = 0;     // 新增：无视负重计时器
+    private static final int IGNORE_WEIGHT_DURATION = 300;  // 5秒（60帧 * 5）
+    private int itemGlowCounter = 0;
+
     // ===================== 构造方法 - 重构布局 =====================
     public GamePanel(boolean isGuestMode) {
         this.isGuestMode = isGuestMode;
@@ -149,48 +163,78 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         initKeyDoors();
         currentRoomIndex = 0;
         levelCompleted = false;
+        gameOverByEnemy = false;  // 新增
         message = "";
         messageTimer = 0;
         loadCurrentRoom();
         player = new Player(gameCanvas.getWidth()/2, gameCanvas.getHeight()/2);
+
+        // 初始化敌人列表
+        enemies = new ArrayList<>();
+        spawnEnemyForCurrentRoom();  // 新增：为当前房间生成敌人
+
         health = maxHealth;
         score = 0;
         hasKey = false;
         ghostMode = false;
         ghostModeTimer = 0;
 
-        // 直接同步生成，不再延迟
         regenerateObstacles();
         redistributeItems();
         gameCanvas.repaint();
         leftPanel.repaint();
         rightPanel.repaint();
     }
+
     private void initRooms() {
         rooms = new ArrayList<>();
+
+        // ========== 房间1：森林 ==========
         Room room1 = new Room("森林", new Color(30, 60, 30), 1);
-        room1.addItem(new Item("金色徽章", "闪亮的徽章", 2, 100, 100));
-        room1.addItem(new Item("魔法水晶", "紫色水晶", 3, 700, 150));
-        room1.addItem(new Item("生命药水", "恢复20生命", 1, 300, 550));
-        room1.addItem(new Item("魔法饼干", "增加负重上限", 1, 650, 500));
-        room1.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 1, 500, 400));
-        room1.addItem(new Item("钥匙", "打开锁着的门", 1, 200, 300));
+        room1.addItem(new Item("金色徽章", "闪亮的徽章", 5, 100, 100));
+        room1.addItem(new Item("金色徽章", "闪亮的徽章", 5, 300, 150));
+        room1.addItem(new Item("魔法水晶", "紫色水晶", 6, 700, 150));
+        room1.addItem(new Item("魔法水晶", "紫色水晶", 6, 500, 300));
+        room1.addItem(new Item("生命药水", "恢复20生命", 3, 300, 550));
+        room1.addItem(new Item("生命药水", "恢复20生命", 3, 600, 450));
+        room1.addItem(new Item("魔法饼干", "增加负重上限", 2, 650, 500));
+        room1.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 3, 500, 400));
+        room1.addItem(new Item("加速药水", "5秒内无视负重", 2, 450, 200));  // 新增
+        room1.addItem(new Item("钥匙", "打开锁着的门", 4, 200, 300));
+        room1.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 400, 250));
+        room1.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 150, 500));
         rooms.add(room1);
 
+        // ========== 房间2：洞穴 ==========
         Room room2 = new Room("洞穴", new Color(60, 50, 40), 2);
-        room2.addItem(new Item("冰晶碎片", "散发寒气", 2, 120, 180));
-        room2.addItem(new Item("霜之精华", "冰霜精华", 3, 680, 220));
-        room2.addItem(new Item("寒冰宝石", "珍贵宝石", 4, 550, 500));
-        room2.addItem(new Item("生命药水", "恢复20生命", 1, 400, 80));
-        room2.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 1, 300, 450));
+        room2.addItem(new Item("冰晶碎片", "散发寒气", 4, 120, 180));
+        room2.addItem(new Item("冰晶碎片", "散发寒气", 4, 400, 300));
+        room2.addItem(new Item("霜之精华", "冰霜精华", 5, 680, 220));
+        room2.addItem(new Item("寒冰宝石", "珍贵宝石", 7, 550, 500));
+        room2.addItem(new Item("寒冰宝石", "珍贵宝石", 7, 200, 400));
+        room2.addItem(new Item("生命药水", "恢复20生命", 3, 400, 80));
+        room2.addItem(new Item("生命药水", "恢复20生命", 3, 600, 550));
+        room2.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 3, 300, 450));
+        room2.addItem(new Item("加速药水", "5秒内无视负重", 2, 550, 300));  // 新增
+        room2.addItem(new Item("魔法饼干", "增加负重上限", 2, 500, 200));
+        room2.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 250, 350));
+        room2.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 650, 150));
         rooms.add(room2);
 
+        // ========== 房间3：深渊 ==========
         Room room3 = new Room("深渊", new Color(80, 30, 20), 3);
-        room3.addItem(new Item("火焰符文", "火焰符文", 2, 100, 250));
-        room3.addItem(new Item("熔岩之心", "滚烫核心", 5, 700, 350));
-        room3.addItem(new Item("凤凰羽毛", "传说羽毛", 1, 400, 550));
-        room3.addItem(new Item("魔法饼干", "增加负重上限", 1, 250, 100));
-        room3.addItem(new Item("钥匙", "打开锁着的门", 1, 600, 500));
+        room3.addItem(new Item("火焰符文", "火焰符文", 5, 100, 250));
+        room3.addItem(new Item("火焰符文", "火焰符文", 5, 500, 200));
+        room3.addItem(new Item("熔岩之心", "滚烫核心", 8, 700, 350));
+        room3.addItem(new Item("凤凰羽毛", "传说羽毛", 3, 400, 550));
+        room3.addItem(new Item("凤凰羽毛", "传说羽毛", 3, 250, 100));
+        room3.addItem(new Item("魔法饼干", "增加负重上限", 2, 250, 100));
+        room3.addItem(new Item("魔法饼干", "增加负重上限", 2, 600, 400));
+        room3.addItem(new Item("生命药水", "恢复20生命", 3, 300, 300));
+        room3.addItem(new Item("加速药水", "5秒内无视负重", 2, 480, 450));  // 新增
+        room3.addItem(new Item("钥匙", "打开锁着的门", 4, 600, 500));
+        room3.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 150, 400));
+        room3.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 550, 250));
         rooms.add(room3);
     }
 
@@ -215,19 +259,177 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             items = new ArrayList<>();
             for (Item item : currentRoom.getItems()) items.add(item);
         }
-        playerX = gameCanvas.getWidth() / 2 - playerWidth/2;
-        playerY = gameCanvas.getHeight() / 2 - playerHeight/2;
-        if (player != null) player.setPosition(playerX, playerY);
-        levelCompleted = false;
 
-        // 进入房间同步生成障碍、重排道具，移除延迟回调
+        // 修改这里：确保玩家在中央
+        // 使用 SwingUtilities.invokeLater 确保画布尺寸已就绪
+        SwingUtilities.invokeLater(() -> {
+            if (gameCanvas.getWidth() > 0 && gameCanvas.getHeight() > 0) {
+                playerX = gameCanvas.getWidth() / 2 - playerWidth/2;
+                playerY = gameCanvas.getHeight() / 2 - playerHeight/2;
+            } else {
+                // 默认值，等第一次绘制时会重新调整
+                playerX = 400;
+                playerY = 400;
+            }
+            if (player != null) player.setPosition(playerX, playerY);
+            gameCanvas.repaint();
+        });
+
+        levelCompleted = false;
         regenerateObstacles();
         redistributeItems();
-        // 局部刷新各个面板
         gameCanvas.repaint();
         leftPanel.repaint();
         rightPanel.repaint();
     }
+
+    /**
+     * 为当前房间生成一个敌人
+     */
+    private void spawnEnemyForCurrentRoom() {
+        if (enemies == null) {
+            enemies = new ArrayList<>();
+        }
+        enemies.clear();
+
+        // 确保画布尺寸有效
+        if (gameCanvas.getWidth() <= 0 || gameCanvas.getHeight() <= 0) {
+            // 延迟生成
+            SwingUtilities.invokeLater(() -> spawnEnemyForCurrentRoom());
+            return;
+        }
+
+        int roomX = 10;
+        int roomY = 10;
+        int roomW = gameCanvas.getWidth() - 20;
+        int roomH = gameCanvas.getHeight() - 20;
+
+        int enemyX, enemyY;
+        int side = new Random().nextInt(4);
+
+        switch(side) {
+            case 0:
+                enemyX = roomX + roomW/2 - 17;
+                enemyY = roomY - 10;
+                break;
+            case 1:
+                enemyX = roomX + roomW - 10;
+                enemyY = roomY + roomH/2 - 17;
+                break;
+            case 2:
+                enemyX = roomX + roomW/2 - 17;
+                enemyY = roomY + roomH - 10;
+                break;
+            default:
+                enemyX = roomX - 10;
+                enemyY = roomY + roomH/2 - 17;
+                break;
+        }
+
+        Enemy enemy = new Enemy(enemyX, enemyY);
+        enemies.add(enemy);
+        System.out.println("敌人生成在位置: (" + enemyX + ", " + enemyY + ")");  // 调试
+    }
+
+    /**
+     * 根据当前负重计算玩家速度
+     * 负重比例越高，速度越慢
+     */
+    // 在更新速度的方法中添加加速效果处理
+    private void updateSpeedByWeight() {
+        if (player == null) return;
+
+        // 如果有加速药水效果，无视负重，直接最大速度
+        if (ignoreWeight) {
+            speed = originalSpeed;
+            currentSpeed = originalSpeed;
+            return;
+        }
+
+        // 如果有加速效果（原来的speed boost）
+        if (speedBoostTimer > 0) {
+            speed = originalSpeed + 3;
+            currentSpeed = speed;
+            return;
+        }
+
+        int currentWeight = player.getCurrentWeight();
+        int maxWeight = player.getMaxWeight();
+
+        if (maxWeight <= 0) {
+            currentSpeed = originalSpeed;
+            speed = currentSpeed;
+            return;
+        }
+
+        double weightRatio = (double) currentWeight / maxWeight;
+        int newSpeed = (int) (originalSpeed - (originalSpeed - minSpeed) * weightRatio);
+        currentSpeed = Math.max(minSpeed, Math.min(originalSpeed, newSpeed));
+        speed = currentSpeed;
+    }
+
+    /**
+     * 更新所有敌人的位置（向玩家移动）
+     */
+    private void updateEnemies() {
+        if (enemies == null || enemies.isEmpty() || levelCompleted) return;
+
+        for (Enemy enemy : enemies) {
+            // 更新眩晕状态
+            enemy.updateStun();
+
+            // 调试：打印眩晕状态变化
+            // if (enemy.isStunned()) {
+            //     System.out.println("敌人眩晕中...");
+            // }
+
+            // 向玩家方向移动（眩晕时不会移动）
+            enemy.moveTowardsPlayer(playerX, playerY);
+
+            // 边界限制
+            int minX = 10 - 15;
+            int maxX = gameCanvas.getWidth() - enemy.getWidth() - 10 + 15;
+            int minY = 10 - 15;
+            int maxY = gameCanvas.getHeight() - enemy.getHeight() - 10 + 15;
+
+            int enemyX = enemy.getX();
+            int enemyY = enemy.getY();
+            enemyX = Math.max(minX, Math.min(maxX, enemyX));
+            enemyY = Math.max(minY, Math.min(maxY, enemyY));
+            enemy.setPosition(enemyX, enemyY);
+        }
+    }
+
+    /**
+     * 检查敌人与玩家的碰撞
+     */
+    private void checkEnemyCollision() {
+        if (enemies == null || enemies.isEmpty() || levelCompleted) return;
+        // 删除 ghostMode 检查 - 幽灵模式也会被敌人杀死
+
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+
+        for (Enemy enemy : enemies) {
+            if (playerRect.intersects(enemy.getBounds())) {
+                gameOverByEnemy = true;
+                levelCompleted = true;
+                showMessage("💀 你被红色追击者抓住了！游戏结束！💀", 180);
+
+                if (!isGuestMode) {
+                    UserManager.getInstance().updateGameData(score);
+                }
+
+                // 延迟重置游戏
+                Timer delayTimer = new Timer(2000, e -> {
+                    restartGame();
+                });
+                delayTimer.setRepeats(false);
+                delayTimer.start();
+                return;
+            }
+        }
+    }
+
     private void saveCurrentRoomState() {
         Room currentRoom = rooms.get(currentRoomIndex);
         List<Item> saved = new ArrayList<>();
@@ -279,6 +481,10 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
         currentRoomIndex++;
         loadCurrentRoom();
+
+        // 新房间生成新敌人
+        spawnEnemyForCurrentRoom();
+
         showMessage("进入 " + rooms.get(currentRoomIndex).getName() + "！", 60);
     }
 
@@ -299,30 +505,54 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
     private void checkObstacleCollision() {
         if (ghostMode) return;
+        if (invincibleFrames > 0) return;  // 无敌状态，不受伤害
+
         Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+
         for (Obstacle obs : obstacles) {
             if (playerRect.intersects(obs.getBounds())) {
-                if (leftPressed) playerX += 5;
-                if (rightPressed) playerX -= 5;
-                if (upPressed) playerY += 5;
-                if (downPressed) playerY -= 5;
-                while (playerRect.intersects(obs.getBounds())) {
-                    if (leftPressed) playerX++;
-                    if (rightPressed) playerX--;
-                    if (upPressed) playerY++;
-                    if (downPressed) playerY--;
-                    playerRect.setBounds(playerX, playerY, playerWidth, playerHeight);
-                }
-                if (obs.isSpike()) {
-                    health -= 10;
-                    if (health <= 0) {
-                        health = 0;
-                        restartGame();
-                        showMessage("你死了！游戏重新开始！", 60);
+
+                // ========== 弹开效果（对所有障碍物） ==========
+                int centerX = playerX + playerWidth/2;
+                int centerY = playerY + playerHeight/2;
+                int obsCenterX = obs.x + obs.w/2;
+                int obsCenterY = obs.y + obs.h/2;
+
+                int dx = centerX - obsCenterX;
+                int dy = centerY - obsCenterY;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    if (dx > 0) {
+                        playerX = obs.x + obs.w + 5;
                     } else {
-                        showMessage("触碰尖刺！-10生命！", 30);
+                        playerX = obs.x - playerWidth - 5;
+                    }
+                } else {
+                    if (dy > 0) {
+                        playerY = obs.y + obs.h + 5;
+                    } else {
+                        playerY = obs.y - playerHeight - 5;
                     }
                 }
+
+                playerX = Math.max(10, Math.min(gameCanvas.getWidth() - playerWidth - 10, playerX));
+                playerY = Math.max(10, Math.min(gameCanvas.getHeight() - playerHeight - 10, playerY));
+
+                // ========== 伤害处理（仅尖刺） ==========
+                if (obs.isSpike()) {
+                    health -= 20;
+                    invincibleFrames = INVINCIBLE_DURATION;
+
+                    if (health <= 0) {
+                        health = 0;
+                        showMessage("💀 你被尖刺杀死了！游戏重新开始！💀", 60);
+                        restartGame();
+                        return;
+                    } else {
+                        showMessage("💔 触碰尖刺！-20生命！剩余: " + health + "/" + maxHealth, 40);
+                    }
+                }
+
                 break;
             }
         }
@@ -344,24 +574,46 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private void pickupNearbyItem() {
         if (nearbyItem == null) return;
         String name = nearbyItem.getName();
+
         if (name.equals("魔法饼干")) {
             player.increaseMaxWeight(5);
             items.remove(nearbyItem);
             showMessage("吃掉魔法饼干！负重上限+5！", 60);
-        } else if (name.equals("生命药水")) {
+        }
+        else if (name.equals("生命药水")) {
             health = Math.min(maxHealth, health + 20);
             items.remove(nearbyItem);
             showMessage("生命+20！当前 " + health + "/" + maxHealth, 60);
-        } else if (name.equals("幽灵药水")) {
+        }
+        else if (name.equals("幽灵药水")) {
             ghostMode = true;
             ghostModeTimer = 300;
             items.remove(nearbyItem);
             showMessage("幽灵模式！5秒内可穿过障碍物！", 60);
-        } else if (name.equals("钥匙")) {
+        }
+        else if (name.equals("加速药水")) {  // 新增
+            ignoreWeight = true;
+            ignoreWeightTimer = IGNORE_WEIGHT_DURATION;
+            items.remove(nearbyItem);
+            showMessage("⚡ 加速药水！5秒内无视负重，速度达到最大！ ⚡", 60);
+        }
+        else if (name.equals("钥匙")) {
             hasKey = true;
             items.remove(nearbyItem);
             showMessage("获得了钥匙！可以打开锁着的门！", 60);
-        } else {
+        }
+        else if (name.equals("眩晕药水")) {
+            if (enemies != null && !enemies.isEmpty()) {
+                for (Enemy enemy : enemies) {
+                    enemy.stun(STUN_DURATION);
+                }
+                items.remove(nearbyItem);
+                showMessage("✨ 眩晕药水！敌人眩晕3秒！ ✨", 60);
+            } else {
+                showMessage("没有敌人可以眩晕...", 30);
+            }
+        }
+        else {
             if (player.takeItem(nearbyItem)) {
                 int add = doubleScore ? 2 : 1;
                 score += add;
@@ -393,11 +645,45 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             return;
         }
 
+        // 更新各种计时器
+        if (invincibleFrames > 0) {
+            invincibleFrames--;
+        }
+
+        itemGlowCounter = (itemGlowCounter + 1) % 60;
+
+        if (ignoreWeightTimer > 0) {
+            ignoreWeightTimer--;
+            if (ignoreWeightTimer <= 0) {
+                ignoreWeight = false;
+                showMessage("加速药水效果结束，速度恢复正常", 30);
+            }
+        }
+
+        if (speedBoostTimer > 0) {
+            speedBoostTimer--;
+            if (speedBoostTimer <= 0) {
+                speed = originalSpeed;
+            }
+        }
+
+        if (ghostModeTimer > 0) {
+            ghostModeTimer--;
+            if (ghostModeTimer <= 0) {
+                ghostMode = false;
+                ejectFromObstacles();
+                showMessage("幽灵模式结束", 30);
+            }
+        }
+
+        // 根据负重更新速度
+        updateSpeedByWeight();
+
         // 玩家移动
-        if (leftPressed) playerX -= speed;
-        if (rightPressed) playerX += speed;
-        if (upPressed) playerY -= speed;
-        if (downPressed) playerY += speed;
+        if (leftPressed) playerX -= currentSpeed;
+        if (rightPressed) playerX += currentSpeed;
+        if (upPressed) playerY -= currentSpeed;
+        if (downPressed) playerY += currentSpeed;
 
         // 边界限制（基于游戏画布，不再受侧边栏影响）
         int minX = 10 - 15;
@@ -411,10 +697,18 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         updatePowerUpTimers();
         if (ghostModeTimer > 0) {
             ghostModeTimer--;
-            if (ghostModeTimer <= 0) ghostMode = false;
+            if (ghostModeTimer <= 0) {
+                ghostMode = false;
+                // 幽灵模式结束时，检查是否卡在障碍物中
+                ejectFromObstacles();
+                showMessage("幽灵模式结束", 30);
+            }
         }
 
         checkObstacleCollision();
+        // 在 checkObstacleCollision(); 之后添加
+        updateEnemies();        // 更新敌人位置
+        checkEnemyCollision();  // 检查敌人碰撞
         checkDoors();
         checkKeyDoors();
         checkNearbyItem();
@@ -429,6 +723,51 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         gameCanvas.repaint();
         leftPanel.repaint();
         rightPanel.repaint();
+    }
+
+    private void ejectFromObstacles() {
+        Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
+        boolean stuck = true;
+        int maxAttempts = 20;
+        int attempt = 0;
+
+        while (stuck && attempt < maxAttempts) {
+            stuck = false;
+            for (Obstacle obs : obstacles) {
+                if (playerRect.intersects(obs.getBounds())) {
+                    stuck = true;
+                    // 尝试各种方向传送
+                    int[][] offsets = {
+                            {50, 0}, {-50, 0}, {0, 50}, {0, -50},     // 上下左右
+                            {30, 30}, {-30, -30}, {30, -30}, {-30, 30} // 对角线
+                    };
+
+                    if (attempt < offsets.length) {
+                        playerX += offsets[attempt][0];
+                        playerY += offsets[attempt][1];
+                    } else {
+                        // 最后手段：传送到房间中央
+                        playerX = gameCanvas.getWidth() / 2 - playerWidth/2;
+                        playerY = gameCanvas.getHeight() / 2 - playerHeight/2;
+                    }
+
+                    // 边界限制
+                    playerX = Math.max(10, Math.min(gameCanvas.getWidth() - playerWidth - 10, playerX));
+                    playerY = Math.max(10, Math.min(gameCanvas.getHeight() - playerHeight - 10, playerY));
+
+                    playerRect.setBounds(playerX, playerY, playerWidth, playerHeight);
+                    break;
+                }
+            }
+            attempt++;
+        }
+
+        // 如果还是卡住，强制传送到安全区域
+        if (stuck) {
+            playerX = gameCanvas.getWidth() / 2 - playerWidth/2;
+            playerY = gameCanvas.getHeight() / 2 - playerHeight/2;
+            showMessage("强制传送至安全区域", 60);
+        }
     }
 
     // ===================== 分区绘制方法（核心：解决遮挡） =====================
@@ -448,10 +787,13 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
 
         for (Item item : items) {
-            drawItem(g2d, item.getX(), item.getY());
-            g2d.setColor(new Color(255, 220, 150));
-            g2d.setFont(new Font("微软雅黑", Font.PLAIN, 10));
-            g2d.drawString(item.getName(), item.getX() - 5, item.getY() - 5);
+            drawItem(g2d, item.getX(), item.getY(), item);
+        }
+
+        if (enemies != null) {
+            for (Enemy enemy : enemies) {
+                enemy.draw(g2d);
+            }
         }
 
         // 绘制玩家
@@ -477,27 +819,41 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         if (inventoryUIVisible) drawInventoryUI(g2d);
     }
 
+    private void setPlayerToCenter() {
+        if (gameCanvas.getWidth() > 0 && gameCanvas.getHeight() > 0) {
+            playerX = gameCanvas.getWidth() / 2 - playerWidth/2;
+            playerY = gameCanvas.getHeight() / 2 - playerHeight/2;
+        } else {
+            playerX = 400;
+            playerY = 400;
+        }
+        if (player != null) player.setPosition(playerX, playerY);
+    }
+
     private void drawLeftPanelContent(Graphics2D g) {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
         int x = 10;
         int y = 10;
-        int w = getWidth() - 20;
-        int h = getHeight() - 20;
+        int w = leftPanel.getWidth() - 20;
+        int h = leftPanel.getHeight() - 20;
 
+        // 背景
         g.setColor(new Color(0, 0, 0, 230));
         g.fillRoundRect(x, y, w, h, 12, 12);
         g.setColor(BORDER_COLOR);
         g.drawRoundRect(x, y, w, h, 12, 12);
 
         int py = y + 20;
+
+        // 标题
         g.setFont(new Font("微软雅黑", Font.BOLD, 14));
         g.setColor(TEXT_MAIN);
         g.drawString("冒险者", x + 10, py);
         py += 20;
 
-        // 血量条（美化渐变）
+        // 血量条
         g.setColor(new Color(80, 0, 0));
         g.fillRoundRect(x + 10, py, w - 20, 14, 7, 7);
         int hpPercent = health * (w - 20) / maxHealth;
@@ -520,18 +876,77 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         g.setColor(new Color(60, 40, 40));
         g.fillRoundRect(x + 10, py, w - 20, 12, 6, 6);
         int weightPercent = player.getCurrentWeight() * (w - 20) / player.getMaxWeight();
-        g.setColor(new Color(255, 180, 50));
+
+        // 根据负重比例改变颜色
+        double weightRatio = (double) player.getCurrentWeight() / player.getMaxWeight();
+        if (weightRatio > 0.8) {
+            g.setColor(new Color(255, 80, 80));  // 红色 - 过重
+        } else if (weightRatio > 0.5) {
+            g.setColor(new Color(255, 180, 50)); // 橙色 - 较重
+        } else {
+            g.setColor(new Color(100, 200, 100)); // 绿色 - 正常
+        }
         g.fillRoundRect(x + 10, py, weightPercent, 12, 6, 6);
+
         g.setColor(TEXT_MAIN);
         g.setFont(new Font("微软雅黑", Font.PLAIN, 9));
         g.drawString("负重:" + player.getCurrentWeight() + "/" + player.getMaxWeight() + "kg", x + 10, py + 18);
         py += 30;
 
+        // ========== 新增：速度显示 ==========
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+        if (currentSpeed < originalSpeed) {
+            g.setColor(new Color(255, 150, 100));
+            g.drawString("🐢 移动速度: " + currentSpeed + " (负重减速)", x + 10, py);
+        } else if (speedBoostTimer > 0) {
+            g.setColor(new Color(100, 255, 100));
+            g.drawString("⚡ 移动速度: " + currentSpeed + " (加速中)", x + 10, py);
+        } else {
+            g.setColor(new Color(200, 200, 200));
+            g.drawString("🏃 移动速度: " + currentSpeed, x + 10, py);
+        }
+        py += 18;
+
+        // 负重警告
+        if (weightRatio > 0.8) {
+            g.setColor(new Color(255, 80, 80));
+            g.setFont(new Font("微软雅黑", Font.BOLD, 11));
+            g.drawString("⚠️ 负重过高！速度下降！", x + 10, py);
+            py += 18;
+        }
+
         // 状态提示
         g.setFont(new Font("微软雅黑", Font.PLAIN, 11));
-        if (speedBoostTimer > 0) { g.setColor(Color.GREEN); g.drawString("⚡加速中", x + 10, py); py += 18; }
-        if (ghostMode) { g.setColor(Color.MAGENTA); g.drawString("👻幽灵模式", x + 10, py); py += 18; }
-        if (hasKey) { g.setColor(TEXT_HIGHLIGHT); g.drawString("🔑持有钥匙", x + 10, py); }
+        if (speedBoostTimer > 0) {
+            g.setColor(Color.GREEN);
+            g.drawString("⚡加速中", x + 10, py);
+            py += 18;
+        }
+        if (ghostMode) {
+            g.setColor(Color.MAGENTA);
+            g.drawString("👻幽灵模式", x + 10, py);
+            py += 18;
+        }
+        if (ignoreWeight) {
+            g.setColor(new Color(100, 255, 150));
+            g.drawString("⚡ 加速药水效果中 (无视负重)", x + 10, py);
+            py += 18;
+        }
+        if (ghostMode) {
+            g.setColor(Color.MAGENTA);
+            g.drawString("👻幽灵模式", x + 10, py);
+            py += 18;
+        }
+        if (hasKey) {
+            g.setColor(TEXT_HIGHLIGHT);
+            g.drawString("🔑持有钥匙", x + 10, py);
+            py += 18;
+        }
+        if (invincibleFrames > 0) {
+            g.setColor(new Color(255, 255, 100));
+            g.drawString("✨ 无敌状态", x + 10, py);
+            py += 18;
+        }
     }
 
     private void drawRightPanelContent(Graphics2D g) {
@@ -728,11 +1143,93 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
     }
 
-    private void drawItem(Graphics2D g, int x, int y) {
-        g.setColor(new Color(255, 200, 0));
-        g.fillOval(x, y, 18, 18);
-        g.setColor(new Color(255, 255, 100));
-        g.fillOval(x + 4, y + 4, 10, 10);
+    private void drawItem(Graphics2D g, int x, int y, Item item) {
+        String type = getItemType(item);
+        String name = item.getName();
+
+        // 在 switch 之前添加，让所有物品都有呼吸效果
+        float alpha = 0.5f + (float)Math.sin(itemGlowCounter * Math.PI / 30) * 0.3f;
+
+        // 根据不同类型绘制不同的外观
+        switch(type) {
+            case "buff":
+                // 增益物品：绿色+ 光芒效果
+                // 外发光
+                g.setColor(new Color(100, 255, 100, 80));
+                g.fillOval(x - 3, y - 3, 24, 24);
+                // 主体
+                g.setColor(new Color(50, 200, 50));
+                g.fillOval(x, y, 18, 18);
+                g.setColor(new Color(100, 255, 100));
+                g.fillOval(x + 2, y + 2, 14, 14);
+                // 加号标志
+                g.setColor(Color.WHITE);
+                g.setStroke(new BasicStroke(2));
+                g.drawLine(x + 9, y + 4, x + 9, y + 14);
+                g.drawLine(x + 4, y + 9, x + 14, y + 9);
+                break;
+
+            case "stun":
+                // 眩晕药水：紫色 + 星星效果
+                g.setColor(new Color(200, 100, 255, 80));
+                g.fillOval(x - 3, y - 3, 24, 24);
+                g.setColor(new Color(160, 50, 200));
+                g.fillOval(x, y, 18, 18);
+                g.setColor(new Color(200, 100, 255));
+                g.fillOval(x + 2, y + 2, 14, 14);
+                // 星星标志
+                g.setColor(Color.YELLOW);
+                g.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 12));
+                g.drawString("⭐", x + 4, y + 14);
+                break;
+
+            case "key":
+                // 钥匙：金色 + 钥匙形状
+                g.setColor(new Color(255, 200, 50, 80));
+                g.fillOval(x - 3, y - 3, 24, 24);
+                g.setColor(new Color(255, 180, 0));
+                g.fillOval(x, y, 18, 18);
+                g.setColor(new Color(255, 220, 100));
+                g.fillOval(x + 2, y + 2, 14, 14);
+                // 钥匙标志
+                g.setColor(Color.WHITE);
+                g.fillRect(x + 8, y + 5, 3, 10);
+                g.fillOval(x + 6, y + 4, 7, 5);
+                break;
+
+            default:
+                // 得分物品：蓝色/金色 + 宝石形状
+                g.setColor(new Color(50, 150, 255, 80));
+                g.fillOval(x - 3, y - 3, 24, 24);
+
+                // 宝石渐变效果
+                GradientPaint gemGrad = new GradientPaint(
+                        x, y, new Color(50, 150, 255),
+                        x + 18, y + 18, new Color(30, 100, 200)
+                );
+                g.setPaint(gemGrad);
+                g.fillOval(x, y, 18, 18);
+
+                // 高光
+                g.setColor(new Color(150, 200, 255, 180));
+                g.fillOval(x + 4, y + 3, 5, 5);
+
+                // 分数标志
+                g.setColor(Color.WHITE);
+                g.setFont(new Font("微软雅黑", Font.BOLD, 10));
+                g.drawString("+", x + 7, y + 13);
+                break;
+        }
+
+        // 物品名称标签（带背景）
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 10));
+        FontMetrics fm = g.getFontMetrics();
+        int textWidth = fm.stringWidth(name);
+
+        g.setColor(new Color(0, 0, 0, 180));
+        g.fillRoundRect(x + 18 - textWidth/2, y - 12, textWidth + 4, 14, 5, 5);
+        g.setColor(Color.WHITE);
+        g.drawString(name, x + 20 - textWidth/2, y - 2);
     }
 
     private void drawMessage(Graphics2D g) {
@@ -830,10 +1327,12 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             saveCurrentRoomState();
             currentRoomIndex--;
             loadCurrentRoom();
-            showMessage("返回上一个房间：" + rooms.get(currentRoomIndex).getName(), 60);
-            playerX = 400;
-            playerY = 400;
-            if (player != null) player.setPosition(400, 400);
+
+            // 返回上一个房间时也重新生成敌人
+            spawnEnemyForCurrentRoom();
+
+            showMessage("返回 " + rooms.get(currentRoomIndex).getName(), 60);
+            setPlayerToCenter();
         } else {
             showMessage("已经在第一个房间，无法返回！", 60);
         }
@@ -844,13 +1343,17 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     }
 
     private void restartGame() {
-        if (!isGuestMode && score > 0 && levelCompleted) {
+        if (!isGuestMode && score > 0 && levelCompleted && !gameOverByEnemy) {
             UserManager.getInstance().updateGameData(score);
         }
         currentRoomIndex = 0;
         score = 0;
         health = maxHealth;
         levelCompleted = false;
+        gameOverByEnemy = false;
+        invincibleFrames = 0;
+        ignoreWeight = false;      // 新增
+        ignoreWeightTimer = 0;     // 新增
         roomStateMap.clear();
         hasKey = false;
         ghostMode = false;
@@ -859,6 +1362,10 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         doubleScore = false;
         doubleScoreTimer = 0;
         player = new Player(400, 400);
+
+        enemies = new ArrayList<>();
+        spawnEnemyForCurrentRoom();
+
         loadCurrentRoom();
         showMessage("游戏重新开始！", 60);
         repaint();
@@ -877,6 +1384,24 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         if (key == KeyEvent.VK_L) look();
         if (key == KeyEvent.VK_B) back();
         if (key == KeyEvent.VK_I) showItems();
+    }
+
+    /**
+     * 判断物品类型
+     * 返回: "buff" - 增益物品, "score" - 得分物品, "key" - 钥匙, "stun" - 眩晕药水
+     */
+    private String getItemType(Item item) {
+        String name = item.getName();
+        if (name.equals("生命药水") || name.equals("魔法饼干") ||
+                name.equals("幽灵药水") || name.equals("加速药水")) {
+            return "buff";
+        } else if (name.equals("眩晕药水")) {
+            return "stun";
+        } else if (name.equals("钥匙")) {
+            return "key";
+        } else {
+            return "score";
+        }
     }
 
     @Override
