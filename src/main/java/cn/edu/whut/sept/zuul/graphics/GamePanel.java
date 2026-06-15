@@ -60,6 +60,10 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private BufferedImage playerImage;
     private String playerName;
     private boolean isGuestMode;
+    // ===================== 新增：暂停和战斗管理 =====================
+    private PauseController pauseController;
+    private CombatManager combatManager;
+    private boolean isGameOverHandled = false;
 
     // ===================== 新增：独立布局容器（解决遮挡核心） =====================
     private JPanel leftPanel;
@@ -149,6 +153,9 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
         // 初始化游戏
         initGame();
+        // 新增暂停和战斗管理器
+        pauseController = new PauseController(this);
+        combatManager = new CombatManager(this);
         loadPlayerImage();
         timer = new Timer(1000 / 60, this);
         timer.start();
@@ -203,6 +210,8 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         room1.addItem(new Item("钥匙", "打开锁着的门", 4, 200, 300));
         room1.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 400, 250));
         room1.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 150, 500));
+        room1.addItem(new Weapon("铁剑", "锋利的铁剑", 5, 0, 0));
+        room1.addItem(new Armor("皮甲", "轻便的皮甲", 8, 0, 0));
         rooms.add(room1);
 
         // ========== 房间2：洞穴 ==========
@@ -219,6 +228,8 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         room2.addItem(new Item("魔法饼干", "增加负重上限", 2, 500, 200));
         room2.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 250, 350));
         room2.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 650, 150));
+        room2.addItem(new Weapon("石斧", "沉重的石斧", 6, 0, 0));
+        room2.addItem(new Armor("锁子甲", "金属锁子甲", 10, 0, 0));
         rooms.add(room2);
 
         // ========== 房间3：深渊 ==========
@@ -235,6 +246,8 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         room3.addItem(new Item("钥匙", "打开锁着的门", 4, 600, 500));
         room3.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 150, 400));
         room3.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 550, 250));
+        room3.addItem(new Weapon("匕首", "锋利的匕首", 3, 0, 0));
+        room3.addItem(new Armor("铁盔甲", "坚固的铁盔甲", 12, 0, 0));
         rooms.add(room3);
     }
 
@@ -336,7 +349,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
      * 负重比例越高，速度越慢
      */
     // 在更新速度的方法中添加加速效果处理
-    private void updateSpeedByWeight() {
+    public void updateSpeedByWeight() {
         if (player == null) return;
 
         // 如果有加速药水效果，无视负重，直接最大速度
@@ -405,27 +418,21 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
      */
     private void checkEnemyCollision() {
         if (enemies == null || enemies.isEmpty() || levelCompleted) return;
-        // 删除 ghostMode 检查 - 幽灵模式也会被敌人杀死
 
         Rectangle playerRect = new Rectangle(playerX, playerY, playerWidth, playerHeight);
 
-        for (Enemy enemy : enemies) {
+        // 使用迭代器安全删除
+        for (int i = 0; i < enemies.size(); i++) {
+            Enemy enemy = enemies.get(i);
             if (playerRect.intersects(enemy.getBounds())) {
-                gameOverByEnemy = true;
-                levelCompleted = true;
-                showMessage("💀 你被红色追击者抓住了！游戏结束！💀", 180);
-
-                if (!isGuestMode) {
-                    UserManager.getInstance().updateGameData(score);
+                boolean enemyDied = combatManager.handleCollision(enemy);
+                if (enemyDied) {
+                    // 敌人已死，继续检查其他敌人（防止同时碰撞多个）
+                    i--;
+                } else {
+                    // 没有武器和盔甲 -> 游戏结束（已在handleCollision中调用gameOverByEnemy）
+                    return;
                 }
-
-                // 延迟重置游戏
-                Timer delayTimer = new Timer(2000, e -> {
-                    restartGame();
-                });
-                delayTimer.setRepeats(false);
-                delayTimer.start();
-                return;
             }
         }
     }
@@ -498,7 +505,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
     }
 
-    private void showMessage(String msg, int duration) {
+    public void showMessage(String msg, int duration) {
         message = msg;
         messageTimer = duration;
     }
@@ -613,6 +620,32 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
                 showMessage("没有敌人可以眩晕...", 30);
             }
         }
+        // 在现有的 else if (name.equals("眩晕药水")) { ... } 之后，最终的 else 之前，替换为：
+
+// ========== 武器判断（基于类型） ==========
+        else if (nearbyItem instanceof Weapon) {
+            if (player.takeItem(nearbyItem)) {
+                int add = doubleScore ? 2 : 1;
+                score += add;
+                items.remove(nearbyItem);
+                showMessage("拾取武器 " + name + (doubleScore ? " +2分" : " +1分"), 60);
+            } else {
+                showMessage("负重不足，无法携带武器", 60);
+            }
+        }
+// ========== 盔甲判断（基于类型） ==========
+        else if (nearbyItem instanceof Armor) {
+            if (player.takeItem(nearbyItem)) {
+                int add = doubleScore ? 2 : 1;
+                score += add;
+                items.remove(nearbyItem);
+                showMessage("拾取盔甲 " + name + (doubleScore ? " +2分" : " +1分"), 60);
+            } else {
+                showMessage("负重不足，无法携带盔甲", 60);
+            }
+        }
+
+
         else {
             if (player.takeItem(nearbyItem)) {
                 int add = doubleScore ? 2 : 1;
@@ -642,6 +675,13 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     public void actionPerformed(ActionEvent e) {
         if (levelCompleted) {
             gameCanvas.repaint();
+            return;
+        }
+        // 如果暂停，不更新游戏逻辑（只刷新画面）
+        if (pauseController.isPaused()) {
+            gameCanvas.repaint();
+            leftPanel.repaint();
+            rightPanel.repaint();
             return;
         }
 
@@ -1368,7 +1408,9 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
         loadCurrentRoom();
         showMessage("游戏重新开始！", 60);
+        isGameOverHandled = false;
         repaint();
+
     }
 
     @Override
@@ -1376,6 +1418,18 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         e.consume();
         int key = e.getKeyCode();
         if (key == KeyEvent.VK_R) { restartGame(); return; }
+        // 暂停键 P
+        if (key == KeyEvent.VK_P) {
+            pauseController.togglePause();
+            return;
+        }
+
+// 如果处于暂停状态，让暂停控制器处理数字键
+        if (pauseController.isPaused()) {
+            if (pauseController.handlePausedKey(key)) {
+                return;  // 已处理丢弃物品
+            }
+        }
         if (key == KeyEvent.VK_LEFT || key == KeyEvent.VK_A) leftPressed = true;
         if (key == KeyEvent.VK_RIGHT || key == KeyEvent.VK_D) rightPressed = true;
         if (key == KeyEvent.VK_UP || key == KeyEvent.VK_W) upPressed = true;
@@ -1649,4 +1703,107 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         List<Rectangle> doorAreas = getAllDoorAreas();
         distributeItemsEvenly(items, 40, doorAreas);
     }
+    // 供 CombatManager 调用的方法
+    public void applyTemporarySpeedBoost(int duration, int extraSpeed) {
+        originalSpeed = speed;   // 保存当前基础速度（可能受负重影响）
+        speed = originalSpeed + extraSpeed;
+        Timer boostTimer = new Timer(duration, e -> {
+            speed = originalSpeed;
+            updateSpeedByWeight(); // 恢复后重新计算负重速度
+        });
+        boostTimer.setRepeats(false);
+        boostTimer.start();
+    }
+
+    // ========== 新增：弹开玩家和敌人 ==========
+    public void repelPlayerAndEnemy(Enemy enemy) {
+        // 计算玩家和敌人的中心点
+        int playerCenterX = playerX + playerWidth / 2;
+        int playerCenterY = playerY + playerHeight / 2;
+        int enemyCenterX = enemy.getX() + enemy.getWidth() / 2;
+        int enemyCenterY = enemy.getY() + enemy.getHeight() / 2;
+
+        // 计算方向向量
+        double dx = playerCenterX - enemyCenterX;
+        double dy = playerCenterY - enemyCenterY;
+        double distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < 0.01) {
+            // 防止除零，随机方向弹开
+            dx = 1;
+            dy = 0;
+            distance = 1;
+        }
+
+        // 归一化
+        double nx = dx / distance;
+        double ny = dy / distance;
+
+        // 弹开距离（玩家和敌人分别移动，确保分离）
+        int repelDistance = 40;  // 像素
+        int playerMoveX = (int)(nx * repelDistance);
+        int playerMoveY = (int)(ny * repelDistance);
+        int enemyMoveX = -(int)(nx * repelDistance);
+        int enemyMoveY = -(int)(ny * repelDistance);
+
+        // 移动玩家
+        playerX += playerMoveX;
+        playerY += playerMoveY;
+
+        // 移动敌人
+        enemy.setPosition(enemy.getX() + enemyMoveX, enemy.getY() + enemyMoveY);
+
+        // 边界修正（玩家）
+        int minX = 10 - 15;
+        int maxX = gameCanvas.getWidth() - playerWidth - 10 + 15;
+        int minY = 10 - 15;
+        int maxY = gameCanvas.getHeight() - playerHeight - 10 + 15;
+        playerX = Math.max(minX, Math.min(maxX, playerX));
+        playerY = Math.max(minY, Math.min(maxY, playerY));
+
+        // 边界修正（敌人）
+        int enemyMinX = 10 - 15;
+        int enemyMaxX = gameCanvas.getWidth() - enemy.getWidth() - 10 + 15;
+        int enemyMinY = 10 - 15;
+        int enemyMaxY = gameCanvas.getHeight() - enemy.getHeight() - 10 + 15;
+        enemy.setPosition(
+                Math.max(enemyMinX, Math.min(enemyMaxX, enemy.getX())),
+                Math.max(enemyMinY, Math.min(enemyMaxY, enemy.getY()))
+        );
+    }
+
+    public void gameOverByEnemy() {
+        if (isGameOverHandled) return;  // 防止重复调用
+        isGameOverHandled = true;
+
+        gameOverByEnemy = true;
+        levelCompleted = true;
+        showMessage("💀 你被红色追击者抓住了！游戏结束！💀", 180);
+        if (!isGuestMode) {
+            UserManager.getInstance().updateGameData(score);
+        }
+
+        // 使用 SwingUtilities.invokeLater 确保在 EDT 上执行重启
+        Timer delayTimer = new Timer(2000, e -> {
+            restartGame();
+            isGameOverHandled = false;  // 重启后重置标志
+        });
+        delayTimer.setRepeats(false);
+        delayTimer.start();
+    }
+
+    public void repaintSidePanels() {
+        leftPanel.repaint();
+        rightPanel.repaint();
+    }
+
+    public Player getPlayer() {
+        return player;
+    }
+
+    public List<Enemy> getEnemies() {
+        return enemies;
+    }
+
+
 }
