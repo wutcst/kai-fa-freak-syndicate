@@ -152,46 +152,60 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
 
         // 初始化游戏
-        initGame();
+        initGameBasic();  //
+
         // 新增暂停和战斗管理器
         pauseController = new PauseController(this);
         combatManager = new CombatManager(this);
         loadPlayerImage();
         timer = new Timer(1000 / 60, this);
         timer.start();
+
+        // ⭐ 新增：延迟生成障碍物和物品
+        SwingUtilities.invokeLater(() -> {
+            regenerateObstacles();
+            redistributeItems();
+            spawnEnemyForCurrentRoom();
+            gameCanvas.repaint();
+            leftPanel.repaint();
+            rightPanel.repaint();
+        });
+
         requestFocusInWindow();
     }
 
-    // ===================== 游戏初始化（原有逻辑不变） =====================
-    private void initGame() {
+    // ========== 新增方法：只初始化数据 ==========
+    private void initGameBasic() {
         initRooms();
-        initObstacles();
+        // ⚠️ 不要在这里调用 initObstacles() 清空障碍物，因为 regenerateObstacles() 会重新生成
+        // initObstacles(); // 可以保留，但 regenerateObstacles() 会重新填充
         initDoors();
         initKeyDoors();
         currentRoomIndex = 0;
         levelCompleted = false;
-        gameOverByEnemy = false;  // 新增
+        gameOverByEnemy = false;
         message = "";
         messageTimer = 0;
+
+        // ⭐ 调用 loadCurrentRoom()，但此时画布尺寸为0，不会生成障碍物
         loadCurrentRoom();
-        player = new Player(gameCanvas.getWidth()/2, gameCanvas.getHeight()/2);
 
-        // 初始化敌人列表
+        player = new Player(400, 400);
         enemies = new ArrayList<>();
-        spawnEnemyForCurrentRoom();  // 新增：为当前房间生成敌人
-
         health = maxHealth;
         score = 0;
         hasKey = false;
         ghostMode = false;
         ghostModeTimer = 0;
 
-        regenerateObstacles();
-        redistributeItems();
-        gameCanvas.repaint();
-        leftPanel.repaint();
-        rightPanel.repaint();
+        isGameOverHandled = false;
+        invincibleFrames = 0;
+        ignoreWeight = false;
+        ignoreWeightTimer = 0;
     }
+
+    // ===================== 游戏初始化（原有逻辑不变） =====================
+
 
     private void initRooms() {
         rooms = new ArrayList<>();
@@ -273,24 +287,49 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
             for (Item item : currentRoom.getItems()) items.add(item);
         }
 
-        // 修改这里：确保玩家在中央
-        // 使用 SwingUtilities.invokeLater 确保画布尺寸已就绪
+        // 设置玩家位置（立即设置，但使用安全值）
+        playerX = 400;
+        playerY = 400;
+        if (player != null) player.setPosition(playerX, playerY);
+
+        // 尝试在UI线程中调整到正确位置
         SwingUtilities.invokeLater(() -> {
             if (gameCanvas.getWidth() > 0 && gameCanvas.getHeight() > 0) {
                 playerX = gameCanvas.getWidth() / 2 - playerWidth/2;
                 playerY = gameCanvas.getHeight() / 2 - playerHeight/2;
-            } else {
-                // 默认值，等第一次绘制时会重新调整
-                playerX = 400;
-                playerY = 400;
+                if (player != null) player.setPosition(playerX, playerY);
+                gameCanvas.repaint();
             }
-            if (player != null) player.setPosition(playerX, playerY);
-            gameCanvas.repaint();
         });
 
         levelCompleted = false;
-        regenerateObstacles();
-        redistributeItems();
+
+        // ⭐ 关键：只在画布尺寸有效时才生成
+        if (gameCanvas.getWidth() > 100 && gameCanvas.getHeight() > 100) {
+            regenerateObstacles();
+            redistributeItems();
+            System.out.println("✅ 立即生成障碍物和物品，尺寸: " + gameCanvas.getWidth() + "x" + gameCanvas.getHeight());
+        } else {
+            System.out.println("⏳ 画布尺寸未就绪，延迟生成");
+            // 尺寸无效时，使用延迟生成
+            SwingUtilities.invokeLater(() -> {
+                if (gameCanvas.getWidth() > 100 && gameCanvas.getHeight() > 100) {
+                    regenerateObstacles();
+                    redistributeItems();
+                    System.out.println("✅ 延迟生成障碍物和物品成功，尺寸: " + gameCanvas.getWidth() + "x" + gameCanvas.getHeight());
+                    gameCanvas.repaint();
+                } else {
+                    System.out.println("⚠️ 画布尺寸仍然为0，再次尝试...");
+                    // 再试一次
+                    SwingUtilities.invokeLater(() -> {
+                        regenerateObstacles();
+                        redistributeItems();
+                        gameCanvas.repaint();
+                    });
+                }
+            });
+        }
+
         gameCanvas.repaint();
         leftPanel.repaint();
         rightPanel.repaint();
