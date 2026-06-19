@@ -3,94 +3,92 @@ package cn.edu.whut.sept.zuul.graphics;
 import java.util.List;
 import java.util.Random;
 
-/**
- * 战斗管理器 - 处理武器/盔甲与敌人的互动
- */
+/** 战斗管理器 - 处理武器/盔甲与敌人的互动 */
 public class CombatManager {
-    private GamePanel gamePanel;
-    private static final int ARMOR_SPEED_BOOST_DURATION = 120;  // 2秒 (60fps * 2)
-    private static final int ARMOR_SPEED_BOOST_AMOUNT = 3;     // 加速值
+  private GamePanel gamePanel;
+  private static final int ARMOR_SPEED_BOOST_DURATION = 120; // 2秒 (60fps * 2)
+  private static final int ARMOR_SPEED_BOOST_AMOUNT = 3; // 加速值
 
-    public CombatManager(GamePanel panel) {
-        this.gamePanel = panel;
+  public CombatManager(GamePanel panel) {
+    this.gamePanel = panel;
+  }
+
+  /**
+   * 处理玩家与敌人的碰撞
+   *
+   * @param enemy 碰撞的敌人
+   * @return true 表示敌人已死亡（或玩家死亡），false 表示未处理完
+   */
+  public boolean handleCollision(Enemy enemy) {
+    Player player = gamePanel.getPlayer();
+
+    // 1. 优先查找武器
+    Weapon weapon = findWeaponInInventory(player.getInventory());
+    if (weapon != null) {
+      player.dropItem(weapon);
+      gamePanel.getEnemies().remove(enemy);
+      // ========== 新增：击杀掉落 ==========
+      Random rand = new Random();
+      int dropType = rand.nextInt(3);
+      Item drop = null;
+      int dropX = enemy.getX();
+      int dropY = enemy.getY();
+      switch (dropType) {
+        case 0:
+          drop = new Item("生命药水", "恢复20生命", 3, dropX, dropY);
+          break;
+        case 1:
+          drop = new Item("魔法水晶", "闪亮宝石", 1, dropX, dropY);
+          break;
+        case 2:
+          drop = new Item("加速药水", "无视负重", 2, dropX, dropY);
+          break;
+      }
+      gamePanel.addItemToCurrentRoom(drop);
+      // ========== 掉落结束 ==========
+
+      gamePanel.showMessage("⚔️ 使用 " + weapon.getName() + " 击杀了敌人！", 60);
+      return true;
     }
 
-    /**
-     * 处理玩家与敌人的碰撞
-     * @param enemy 碰撞的敌人
-     * @return true 表示敌人已死亡（或玩家死亡），false 表示未处理完
-     */
-    public boolean handleCollision(Enemy enemy) {
-        Player player = gamePanel.getPlayer();
+    // 2. 查找盔甲
+    Armor armor = findArmorInInventory(player.getInventory());
+    if (armor != null) {
+      // 消耗盔甲
+      player.dropItem(armor);
+      gamePanel.showMessage("🛡️ 盔甲抵挡了攻击！盔甲破碎，获得短暂加速", 60);
+      gamePanel.applyTemporarySpeedBoost(ARMOR_SPEED_BOOST_DURATION, ARMOR_SPEED_BOOST_AMOUNT);
 
-        // 1. 优先查找武器
-        Weapon weapon = findWeaponInInventory(player.getInventory());
-        if (weapon != null) {
-            player.dropItem(weapon);
-            gamePanel.getEnemies().remove(enemy);
-            // ========== 新增：击杀掉落 ==========
-            Random rand = new Random();
-            int dropType = rand.nextInt(3);
-            Item drop = null;
-            int dropX = enemy.getX();
-            int dropY = enemy.getY();
-            switch (dropType) {
-                case 0:
-                    drop = new Item("生命药水", "恢复20生命", 3, dropX, dropY);
-                    break;
-                case 1:
-                    drop = new Item("魔法水晶", "闪亮宝石", 1, dropX, dropY);
-                    break;
-                case 2:
-                    drop = new Item("加速药水", "无视负重", 2, dropX, dropY);
-                    break;
-            }
-            gamePanel.addItemToCurrentRoom(drop);
-            // ========== 掉落结束 ==========
+      // ========== 关键：弹开玩家和敌人，防止重复碰撞 ==========
+      gamePanel.repelPlayerAndEnemy(enemy);
 
+      // ===== 新增：立即重新计算速度并刷新侧边栏 =====
+      gamePanel.updateSpeedByWeight();
+      gamePanel.repaintSidePanels();
 
-            gamePanel.showMessage("⚔️ 使用 " + weapon.getName() + " 击杀了敌人！", 60);
-            return true;
-        }
-
-        // 2. 查找盔甲
-        Armor armor = findArmorInInventory(player.getInventory());
-        if (armor != null) {
-            // 消耗盔甲
-            player.dropItem(armor);
-            gamePanel.showMessage("🛡️ 盔甲抵挡了攻击！盔甲破碎，获得短暂加速", 60);
-            gamePanel.applyTemporarySpeedBoost(ARMOR_SPEED_BOOST_DURATION, ARMOR_SPEED_BOOST_AMOUNT);
-
-            // ========== 关键：弹开玩家和敌人，防止重复碰撞 ==========
-            gamePanel.repelPlayerAndEnemy(enemy);
-
-            // ===== 新增：立即重新计算速度并刷新侧边栏 =====
-            gamePanel.updateSpeedByWeight();
-            gamePanel.repaintSidePanels();
-
-            return false;  // 敌人未死，但玩家已弹开
-        }
-
-        // 3. 无武器无盔甲 -> 游戏结束
-        gamePanel.gameOverByEnemy();
-        return false;  // 游戏结束
+      return false; // 敌人未死，但玩家已弹开
     }
 
-    private Weapon findWeaponInInventory(List<Item> inventory) {
-        for (Item item : inventory) {
-            if (item instanceof Weapon) {
-                return (Weapon) item;
-            }
-        }
-        return null;
-    }
+    // 3. 无武器无盔甲 -> 游戏结束
+    gamePanel.gameOverByEnemy();
+    return false; // 游戏结束
+  }
 
-    private Armor findArmorInInventory(List<Item> inventory) {
-        for (Item item : inventory) {
-            if (item instanceof Armor) {
-                return (Armor) item;
-            }
-        }
-        return null;
+  private Weapon findWeaponInInventory(List<Item> inventory) {
+    for (Item item : inventory) {
+      if (item instanceof Weapon) {
+        return (Weapon) item;
+      }
     }
+    return null;
+  }
+
+  private Armor findArmorInInventory(List<Item> inventory) {
+    for (Item item : inventory) {
+      if (item instanceof Armor) {
+        return (Armor) item;
+      }
+    }
+    return null;
+  }
 }
