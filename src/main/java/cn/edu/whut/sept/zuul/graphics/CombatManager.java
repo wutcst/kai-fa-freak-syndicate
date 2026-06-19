@@ -1,6 +1,7 @@
 package cn.edu.whut.sept.zuul.graphics;
 
 import java.util.List;
+import java.util.Random;
 
 /**
  * 战斗管理器 - 处理武器/盔甲与敌人的互动
@@ -27,6 +28,27 @@ public class CombatManager {
         if (weapon != null) {
             player.dropItem(weapon);
             gamePanel.getEnemies().remove(enemy);
+            // ========== 新增：击杀掉落 ==========
+            Random rand = new Random();
+            int dropType = rand.nextInt(3);
+            Item drop = null;
+            int dropX = enemy.getX();
+            int dropY = enemy.getY();
+            switch (dropType) {
+                case 0:
+                    drop = new Item("生命药水", "恢复20生命", 3, dropX, dropY);
+                    break;
+                case 1:
+                    drop = new Item("魔法水晶", "闪亮宝石", 1, dropX, dropY);
+                    break;
+                case 2:
+                    drop = new Item("加速药水", "无视负重", 2, dropX, dropY);
+                    break;
+            }
+            gamePanel.addItemToCurrentRoom(drop);
+            // ========== 掉落结束 ==========
+
+
             gamePanel.showMessage("⚔️ 使用 " + weapon.getName() + " 击杀了敌人！", 60);
             return true;
         }
@@ -41,6 +63,10 @@ public class CombatManager {
 
             // ========== 关键：弹开玩家和敌人，防止重复碰撞 ==========
             gamePanel.repelPlayerAndEnemy(enemy);
+
+            // ===== 新增：立即重新计算速度并刷新侧边栏 =====
+            gamePanel.updateSpeedByWeight();
+            gamePanel.repaintSidePanels();
 
             return false;  // 敌人未死，但玩家已弹开
         }

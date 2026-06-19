@@ -2,7 +2,7 @@ package cn.edu.whut.sept.zuul.graphics;
 
 import java.awt.Rectangle;
 
-public class Item {
+public class Item implements java.io.Serializable {
     private String name;
     private String description;
     private int weight;

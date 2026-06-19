@@ -11,6 +11,9 @@ import java.util.Random;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import cn.edu.whut.sept.zuul.UserManager;
+import cn.edu.whut.sept.zuul.GameSaveData;
+import cn.edu.whut.sept.zuul.GameSaveManager;
+import cn.edu.whut.sept.zuul.UserManager;
 
 public class GamePanel extends JPanel implements ActionListener, KeyListener {
     // ===================== 全局常量 - 配色&尺寸 =====================
@@ -18,6 +21,8 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private final int RIGHT_PANEL_WIDTH = 200;
     private final int BOTTOM_PANEL_HEIGHT = 30;
 
+    private int round = 0;              // 无尽轮数
+    private boolean isNewGame = true;   // 是否为新建游戏
     // 配色体系 统一美化
     private final Color BG_MAIN = new Color(18, 22, 30);
     private final Color BG_PANEL = new Color(25, 30, 42);
@@ -86,7 +91,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private int itemGlowCounter = 0;
 
     // ===================== 构造方法 - 重构布局 =====================
-    public GamePanel(boolean isGuestMode) {
+    public GamePanel(boolean isGuestMode,GameSaveData saveData) {
         this.isGuestMode = isGuestMode;
         UserManager um = UserManager.getInstance();
         playerName = um.isLoggedIn() ? um.getCurrentUser().getUsername() : "游客";
@@ -152,7 +157,14 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
 
         // 初始化游戏
-        initGameBasic();  //
+        // 初始化游戏数据
+        initBaseData();
+        if (saveData != null && !isGuestMode) {
+            loadGameState(saveData);
+            isNewGame = false;
+        } else {
+            initGameState();
+        }
 
         // 新增暂停和战斗管理器
         pauseController = new PauseController(this);
@@ -174,22 +186,28 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         requestFocusInWindow();
     }
 
-    // ========== 新增方法：只初始化数据 ==========
-    private void initGameBasic() {
+
+    /**
+     * 初始化基础数据（房间、门、标志），不依赖玩家
+     */
+    private void initBaseData() {
         initRooms();
-        // ⚠️ 不要在这里调用 initObstacles() 清空障碍物，因为 regenerateObstacles() 会重新生成
-        // initObstacles(); // 可以保留，但 regenerateObstacles() 会重新填充
         initDoors();
         initKeyDoors();
         currentRoomIndex = 0;
+        round = 0;
         levelCompleted = false;
         gameOverByEnemy = false;
         message = "";
         messageTimer = 0;
+        roomStateMap.clear();
 
-        // ⭐ 调用 loadCurrentRoom()，但此时画布尺寸为0，不会生成障碍物
         loadCurrentRoom();
-
+    }
+    /**
+     * 初始化游戏状态（玩家、敌人、血量、分数等）
+     */
+    private void initGameState() {
         player = new Player(400, 400);
         enemies = new ArrayList<>();
         health = maxHealth;
@@ -197,11 +215,14 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         hasKey = false;
         ghostMode = false;
         ghostModeTimer = 0;
-
         isGameOverHandled = false;
         invincibleFrames = 0;
         ignoreWeight = false;
         ignoreWeightTimer = 0;
+
+        spawnEnemyForCurrentRoom();
+        setPlayerToCenter();
+        updateSpeedByWeight();
     }
 
     // ===================== 游戏初始化（原有逻辑不变） =====================
@@ -210,59 +231,107 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private void initRooms() {
         rooms = new ArrayList<>();
 
-        // ========== 房间1：森林 ==========
+        // ===== 房间1：森林 =====
         Room room1 = new Room("森林", new Color(30, 60, 30), 1);
         room1.addItem(new Item("金色徽章", "闪亮的徽章", 5, 100, 100));
-        room1.addItem(new Item("金色徽章", "闪亮的徽章", 5, 300, 150));
         room1.addItem(new Item("魔法水晶", "紫色水晶", 6, 700, 150));
-        room1.addItem(new Item("魔法水晶", "紫色水晶", 6, 500, 300));
         room1.addItem(new Item("生命药水", "恢复20生命", 3, 300, 550));
-        room1.addItem(new Item("生命药水", "恢复20生命", 3, 600, 450));
         room1.addItem(new Item("魔法饼干", "增加负重上限", 2, 650, 500));
         room1.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 3, 500, 400));
-        room1.addItem(new Item("加速药水", "5秒内无视负重", 2, 450, 200));  // 新增
+        room1.addItem(new Item("加速药水", "5秒内无视负重", 2, 450, 200));
         room1.addItem(new Item("钥匙", "打开锁着的门", 4, 200, 300));
         room1.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 400, 250));
-        room1.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 150, 500));
         room1.addItem(new Weapon("铁剑", "锋利的铁剑", 5, 0, 0));
         room1.addItem(new Armor("皮甲", "轻便的皮甲", 8, 0, 0));
         rooms.add(room1);
 
-        // ========== 房间2：洞穴 ==========
+        // ===== 房间2：洞穴 =====
         Room room2 = new Room("洞穴", new Color(60, 50, 40), 2);
         room2.addItem(new Item("冰晶碎片", "散发寒气", 4, 120, 180));
-        room2.addItem(new Item("冰晶碎片", "散发寒气", 4, 400, 300));
         room2.addItem(new Item("霜之精华", "冰霜精华", 5, 680, 220));
         room2.addItem(new Item("寒冰宝石", "珍贵宝石", 7, 550, 500));
-        room2.addItem(new Item("寒冰宝石", "珍贵宝石", 7, 200, 400));
         room2.addItem(new Item("生命药水", "恢复20生命", 3, 400, 80));
-        room2.addItem(new Item("生命药水", "恢复20生命", 3, 600, 550));
         room2.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 3, 300, 450));
-        room2.addItem(new Item("加速药水", "5秒内无视负重", 2, 550, 300));  // 新增
+        room2.addItem(new Item("加速药水", "5秒内无视负重", 2, 550, 300));
         room2.addItem(new Item("魔法饼干", "增加负重上限", 2, 500, 200));
         room2.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 250, 350));
-        room2.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 650, 150));
         room2.addItem(new Weapon("石斧", "沉重的石斧", 6, 0, 0));
         room2.addItem(new Armor("锁子甲", "金属锁子甲", 10, 0, 0));
         rooms.add(room2);
 
-        // ========== 房间3：深渊 ==========
+        // ===== 房间3：深渊 =====
         Room room3 = new Room("深渊", new Color(80, 30, 20), 3);
         room3.addItem(new Item("火焰符文", "火焰符文", 5, 100, 250));
-        room3.addItem(new Item("火焰符文", "火焰符文", 5, 500, 200));
         room3.addItem(new Item("熔岩之心", "滚烫核心", 8, 700, 350));
         room3.addItem(new Item("凤凰羽毛", "传说羽毛", 3, 400, 550));
-        room3.addItem(new Item("凤凰羽毛", "传说羽毛", 3, 250, 100));
         room3.addItem(new Item("魔法饼干", "增加负重上限", 2, 250, 100));
-        room3.addItem(new Item("魔法饼干", "增加负重上限", 2, 600, 400));
         room3.addItem(new Item("生命药水", "恢复20生命", 3, 300, 300));
-        room3.addItem(new Item("加速药水", "5秒内无视负重", 2, 480, 450));  // 新增
+        room3.addItem(new Item("加速药水", "5秒内无视负重", 2, 480, 450));
         room3.addItem(new Item("钥匙", "打开锁着的门", 4, 600, 500));
         room3.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 150, 400));
-        room3.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 550, 250));
         room3.addItem(new Weapon("匕首", "锋利的匕首", 3, 0, 0));
         room3.addItem(new Armor("铁盔甲", "坚固的铁盔甲", 12, 0, 0));
         rooms.add(room3);
+
+        // ===== 房间4：废墟 =====
+        Room room4 = new Room("废墟", new Color(70, 70, 50), 4);
+        room4.addItem(new Item("古老硬币", "生锈的硬币", 3, 200, 150));
+        room4.addItem(new Item("破损卷轴", "记载古老文字", 4, 500, 200));
+        room4.addItem(new Item("生命药水", "恢复20生命", 3, 400, 450));
+        room4.addItem(new Item("魔法饼干", "增加负重上限", 2, 600, 300));
+        room4.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 3, 250, 500));
+        room4.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 650, 150));
+        room4.addItem(new Weapon("长矛", "青铜长矛", 7, 0, 0));
+        room4.addItem(new Armor("钢盾", "重型钢盾", 10, 0, 0));
+        rooms.add(room4);
+
+        // ===== 房间5：墓地 =====
+        Room room5 = new Room("墓地", new Color(40, 40, 50), 5);
+        room5.addItem(new Item("骷髅头", "诡异的头骨", 4, 150, 300));
+        room5.addItem(new Item("磷火", "幽蓝火焰", 2, 600, 400));
+        room5.addItem(new Item("生命药水", "恢复20生命", 3, 350, 150));
+        room5.addItem(new Item("加速药水", "5秒内无视负重", 2, 500, 500));
+        room5.addItem(new Item("钥匙", "古铜钥匙", 4, 200, 50));
+        room5.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 700, 200));
+        room5.addItem(new Weapon("银剑", "附魔银剑", 6, 0, 0));
+        room5.addItem(new Armor("骨甲", "白骨盔甲", 9, 0, 0));
+        rooms.add(room5);
+
+        // ===== 房间6：地牢 =====
+        Room room6 = new Room("地牢", new Color(50, 30, 30), 6);
+        room6.addItem(new Item("铁链", "沉重的铁链", 5, 300, 100));
+        room6.addItem(new Item("魔法水晶", "红色水晶", 6, 550, 550));
+        room6.addItem(new Item("生命药水", "恢复20生命", 3, 150, 450));
+        room6.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 3, 650, 350));
+        room6.addItem(new Item("魔法饼干", "增加负重上限", 2, 400, 600));
+        room6.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 200, 200));
+        room6.addItem(new Weapon("战斧", "双刃战斧", 8, 0, 0));
+        room6.addItem(new Armor("板甲", "精钢板甲", 14, 0, 0));
+        rooms.add(room6);
+
+        // ===== 房间7：神殿 =====
+        Room room7 = new Room("神殿", new Color(80, 80, 30), 7);
+        room7.addItem(new Item("圣杯", "金色圣杯", 5, 500, 150));
+        room7.addItem(new Item("神像", "小型神像", 7, 200, 550));
+        room7.addItem(new Item("生命药水", "恢复20生命", 3, 600, 100));
+        room7.addItem(new Item("加速药水", "5秒内无视负重", 2, 350, 300));
+        room7.addItem(new Item("钥匙", "银色钥匙", 4, 700, 500));
+        room7.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 100, 400));
+        room7.addItem(new Weapon("圣剑", "神圣之剑", 7, 0, 0));
+        room7.addItem(new Armor("圣盾", "神圣盾牌", 11, 0, 0));
+        rooms.add(room7);
+
+        // ===== 房间8：火山口 =====
+        Room room8 = new Room("火山口", new Color(100, 40, 20), 8);
+        room8.addItem(new Item("火山岩", "滚烫岩石", 6, 100, 100));
+        room8.addItem(new Item("硫磺晶体", "黄色晶体", 5, 700, 450));
+        room8.addItem(new Item("生命药水", "恢复20生命", 3, 300, 350));
+        room8.addItem(new Item("魔法饼干", "增加负重上限", 2, 500, 200));
+        room8.addItem(new Item("幽灵药水", "5秒内穿过障碍物", 3, 450, 550));
+        room8.addItem(new Item("眩晕药水", "使敌人眩晕3秒", 3, 250, 150));
+        room8.addItem(new Weapon("火剑", "烈焰之剑", 8, 0, 0));
+        room8.addItem(new Armor("火甲", "熔火盔甲", 13, 0, 0));
+        rooms.add(room8);
     }
 
     private void initObstacles() {
@@ -379,6 +448,12 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
 
         Enemy enemy = new Enemy(enemyX, enemyY);
+        // 根据轮数提高速度：基础3.5，每轮+0.3，上限7.0
+        double baseSpeed = 2.5;
+        double extra = round * 0.3;
+        double newSpeed = Math.min(baseSpeed + extra, 5.0);
+        enemy.setSpeed(newSpeed);
+
         enemies.add(enemy);
         System.out.println("敌人生成在位置: (" + enemyX + ", " + enemyY + ")");  // 调试
     }
@@ -521,20 +596,37 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     private void switchToNextRoom(int direction) {
         if (levelCompleted) return;
         saveCurrentRoomState();
+
+        // 判断是否到达最后一个房间
         if (currentRoomIndex + 1 >= rooms.size()) {
-            gameOver();
+            // 回到第一个房间，轮数+1
+            currentRoomIndex = 0;
+            round++;
+            showMessage("🔥 进入第 " + (round + 1) + " 轮！难度提升！", 60);
+            roomStateMap.clear();
+            loadCurrentRoom();
+            spawnEnemyForCurrentRoom();
+            setPlayerToCenter();
             return;
         }
+
+        // 正常进入下一个房间
         currentRoomIndex++;
         loadCurrentRoom();
-
-        // 新房间生成新敌人
         spawnEnemyForCurrentRoom();
-
         showMessage("进入 " + rooms.get(currentRoomIndex).getName() + "！", 60);
     }
 
     private void gameOver() {
+        // ========== 新增：背包摘要 ==========
+        StringBuilder sb = new StringBuilder("背包物品：");
+        if (player.getInventory().isEmpty()) {
+            sb.append("空");
+        } else {
+            for (Item item : player.getInventory()) {
+                sb.append(item.getName()).append(" ");
+            }
+        }
         showMessage("🎉 通关胜利！总分数: " + score + " 🎉", 180);
         levelCompleted = true;
         if (!isGuestMode) {
@@ -547,6 +639,71 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     public void showMessage(String msg, int duration) {
         message = msg;
         messageTimer = duration;
+    }
+
+    /**
+     * 保存当前游戏状态
+     */
+    public void saveGameState() {
+        if (isGuestMode) return;
+        GameSaveData data = new GameSaveData();
+        data.currentRoomIndex = this.currentRoomIndex;
+        data.round = this.round;
+        data.score = this.score;
+        data.health = this.health;
+        data.maxHealth = this.maxHealth;
+        data.hasKey = this.hasKey;
+        data.playerX = this.playerX;
+        data.playerY = this.playerY;
+        data.maxWeight = player.getMaxWeight();
+        data.currentWeight = player.getCurrentWeight();
+        data.inventoryItems = new ArrayList<>(player.getInventory());
+
+        String username = UserManager.getInstance().getCurrentUser().getUsername();
+        GameSaveManager.saveGame(username, data);
+    }
+
+    /**
+     * 加载游戏状态
+     */
+    public void loadGameState(GameSaveData data) {
+        // 确保 player 已创建
+        if (player == null) {
+            player = new Player(400, 400);
+        }
+        if (enemies == null) {
+            enemies = new ArrayList<>();
+        }
+
+        this.currentRoomIndex = data.currentRoomIndex;
+        this.round = data.round;
+        this.score = data.score;
+        this.health = data.health;
+        this.maxHealth = data.maxHealth;
+        this.hasKey = data.hasKey;
+        this.playerX = data.playerX;
+        this.playerY = data.playerY;
+
+        player.dropAllItems();
+        player.setMaxWeight(data.maxWeight);
+        for (Item item : data.inventoryItems) {
+            player.forceAddItem(item);
+        }
+
+        loadCurrentRoom();
+        spawnEnemyForCurrentRoom();
+        setPlayerToCenter();
+        updateSpeedByWeight();
+
+        showMessage("📂 游戏已加载！进入第 " + (round + 1) + " 轮", 60);
+    }
+    /**
+     * 向当前房间的物品列表中添加一个物品（用于击杀掉落等场景）
+     */
+    public void addItemToCurrentRoom(Item item) {
+        if (items != null) {
+            items.add(item);
+        }
     }
 
     private void checkObstacleCollision() {
@@ -894,8 +1051,20 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
         // 弹窗层级最高
         if (messageTimer > 0 && !message.isEmpty()) drawMessage(g2d);
-        if (levelCompleted && currentRoomIndex + 1 >= rooms.size()) drawGameOver(g2d);
+        // 优先判断是否被敌人击杀
+        if (gameOverByEnemy) {
+            drawGameOverByEnemy(g2d);
+        } else if (levelCompleted && currentRoomIndex + 1 >= rooms.size()) {
+            drawGameOver(g2d);
+        }
         if (inventoryUIVisible) drawInventoryUI(g2d);
+
+        // ========== 新增：受伤闪红效果 ==========
+        if (invincibleFrames > 0) {
+            float alpha = (float) invincibleFrames / INVINCIBLE_DURATION * 0.4f;
+            g2d.setColor(new Color(255, 0, 0, (int)(alpha * 255)));
+            g2d.fillRect(0, 0, gameCanvas.getWidth(), gameCanvas.getHeight());
+        }
     }
 
     private void setPlayerToCenter() {
@@ -1055,20 +1224,27 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         g.drawString("🏠", x + 10, y + 25);
         // 2. 偏移X坐标，再画普通文字
         g.setFont(textFont14);
-        g.drawString(" " + currentRoom.getName(), x + 30, y + 25);
+        //显示层数
+        g.drawString(" " + currentRoom.getName() + "  (第 " + (currentRoomIndex + 1) + " 层)", x + 30, y + 25);
 
-        g.setFont(textFont11);
+        g.setFont(textFont14);
         g.setColor(new Color(200, 200, 150));
         g.drawString("玩家: " + playerName + (isGuestMode ? " (游客)" : ""), x + 10, y + 45);
 
+        // ===== 新增：显示轮数 =====
+        g.drawString("轮数: " + (round + 1), x + 10, y + 75);
+
+        // 画一条分隔线
+        g.setColor(new Color(100, 100, 120));
+        g.drawLine(x + 10, y + 90, x + w - 10, y + 90);
         // 物品清单
         g.setFont(emojiFont);
         g.setColor(TEXT_HIGHLIGHT);
-        g.drawString("📦", x + 10, y + 70);
+        g.drawString("📦", x + 10, y + 110);
         g.setFont(textFont12);
-        g.drawString(" 物品清单 (" + items.size() + ")", x + 30, y + 70);
+        g.drawString(" 物品清单 (" + items.size() + ")", x + 30, y + 110);
 
-        int py = y + 90;
+        int py = y + 130;
         g.setFont(textFont11);
         for (Item item : items) {
             if (py > y + h - 60) break;
@@ -1338,6 +1514,24 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         g.drawString(restart, (gameCanvas.getWidth() - g.getFontMetrics().stringWidth(restart)) / 2, gameCanvas.getHeight() / 2 + 80);
     }
 
+    private void drawGameOverByEnemy(Graphics2D g) {
+        g.setColor(new Color(0, 0, 0, 220));
+        g.fillRect(0, 0, gameCanvas.getWidth(), gameCanvas.getHeight());
+        g.setFont(new Font("微软雅黑", Font.BOLD, 48));
+        g.setColor(Color.RED);
+        String msg = "💀 游戏结束！";
+        FontMetrics fm = g.getFontMetrics();
+        g.drawString(msg, (gameCanvas.getWidth() - fm.stringWidth(msg)) / 2, gameCanvas.getHeight() / 2 - 50);
+        g.setFont(new Font("微软雅黑", Font.PLAIN, 24));
+        g.setColor(Color.WHITE);
+        String scoreMsg = "最终得分: " + score;
+        fm = g.getFontMetrics();
+        g.drawString(scoreMsg, (gameCanvas.getWidth() - fm.stringWidth(scoreMsg)) / 2, gameCanvas.getHeight() / 2 + 20);
+        String restart = "按 R 键重新开始";
+        fm = g.getFontMetrics();
+        g.drawString(restart, (gameCanvas.getWidth() - fm.stringWidth(restart)) / 2, gameCanvas.getHeight() / 2 + 80);
+    }
+
     private void drawInventoryUI(Graphics2D g) {
         if (!inventoryUIVisible) return;
         g.setColor(new Color(0, 0, 0, 220));
@@ -1425,31 +1619,24 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         if (!isGuestMode && score > 0 && levelCompleted && !gameOverByEnemy) {
             UserManager.getInstance().updateGameData(score);
         }
-        currentRoomIndex = 0;
-        score = 0;
-        health = maxHealth;
-        levelCompleted = false;
-        gameOverByEnemy = false;
+
+        initBaseData();
+        initGameState();
+
         invincibleFrames = 0;
-        ignoreWeight = false;      // 新增
-        ignoreWeightTimer = 0;     // 新增
-        roomStateMap.clear();
-        hasKey = false;
-        ghostMode = false;
-        ghostModeTimer = 0;
+        ignoreWeight = false;
+        ignoreWeightTimer = 0;
         speedBoostTimer = 0;
         doubleScore = false;
         doubleScoreTimer = 0;
-        player = new Player(400, 400);
+        ghostMode = false;
+        ghostModeTimer = 0;
+        hasKey = false;
+        roomStateMap.clear();
 
-        enemies = new ArrayList<>();
-        spawnEnemyForCurrentRoom();
-
-        loadCurrentRoom();
-        showMessage("游戏重新开始！", 60);
         isGameOverHandled = false;
+        showMessage("游戏重新开始！", 60);
         repaint();
-
     }
 
     @Override
@@ -1457,6 +1644,31 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         e.consume();
         int key = e.getKeyCode();
         if (key == KeyEvent.VK_R) { restartGame(); return; }
+        //esc
+        if (key == KeyEvent.VK_ESCAPE) {
+            // 先暂停游戏
+            if (!pauseController.isPaused()) {
+                pauseController.togglePause();
+            }
+
+            int option = JOptionPane.showConfirmDialog(this,
+                    "游戏已暂停\n是否保存当前游戏进度并退出？", "退出确认",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+
+            if (option == JOptionPane.YES_OPTION) {
+                if (!isGuestMode) {
+                    saveGameState();
+                }
+                System.exit(0);
+            } else {
+                // 用户取消退出，恢复游戏
+                if (pauseController.isPaused()) {
+                    pauseController.togglePause();
+                }
+            }
+            return;
+        }
+
         // 暂停键 P
         if (key == KeyEvent.VK_P) {
             pauseController.togglePause();
@@ -1555,7 +1767,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
     // ===================== 道具、障碍物分布算法（全部保留） =====================
     private List<Obstacle> generateObstaclesEvenly(int count, int minDistance,
-                                                   List<Rectangle> doorAreas, int safeRadius) {
+                                                   List<Rectangle> doorAreas, int safeRadius,int spikePercent) {
         List<Obstacle> result = new ArrayList<>();
         Rectangle playArea = getCurrentPlayArea();
         if (playArea == null || playArea.width <= 0 || playArea.height <= 0) return result;
@@ -1614,7 +1826,7 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
         }
         while (result.size() < count && !candidates.isEmpty()) {
             Point p = candidates.remove(rand.nextInt(candidates.size()));
-            boolean isSpike = rand.nextInt(100) < 20;
+            boolean isSpike = rand.nextInt(100) < spikePercent;
             result.add(new Obstacle(p.x, p.y, obsW, obsH, isSpike, true));
         }
         return result;
@@ -1734,21 +1946,33 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
 
     private void regenerateObstacles() {
         List<Rectangle> doorAreas = getAllDoorAreas();
-        obstacles = generateObstaclesEvenly(16, 50, doorAreas, 60);
+        int count = 16;
+        int spikePercent = Math.min(20 + round * 2, 50);
+        obstacles = generateObstaclesEvenly(count, 50, doorAreas, 60, spikePercent);
     }
 
     private void redistributeItems() {
         if (items == null || items.isEmpty()) return;
+        int desiredCount = Math.max(5, 14 - round);
+        if (items.size() > desiredCount) {
+            Random rand = new Random();
+            while (items.size() > desiredCount) {
+                items.remove(rand.nextInt(items.size()));
+            }
+        }
         List<Rectangle> doorAreas = getAllDoorAreas();
         distributeItemsEvenly(items, 40, doorAreas);
     }
     // 供 CombatManager 调用的方法
     public void applyTemporarySpeedBoost(int duration, int extraSpeed) {
-        originalSpeed = speed;   // 保存当前基础速度（可能受负重影响）
-        speed = originalSpeed + extraSpeed;
+        // 保存当前速度（用于加速结束后恢复）
+        int oldSpeed = speed;
+        speed = oldSpeed + extraSpeed;
+
         Timer boostTimer = new Timer(duration, e -> {
-            speed = originalSpeed;
-            updateSpeedByWeight(); // 恢复后重新计算负重速度
+            // 恢复速度并重新计算负重影响
+            speed = oldSpeed;
+            updateSpeedByWeight(); // 重新计算当前负重下的速度
         });
         boostTimer.setRepeats(false);
         boostTimer.start();
@@ -1812,20 +2036,31 @@ public class GamePanel extends JPanel implements ActionListener, KeyListener {
     }
 
     public void gameOverByEnemy() {
-        if (isGameOverHandled) return;  // 防止重复调用
+        if (isGameOverHandled) return;
         isGameOverHandled = true;
 
         gameOverByEnemy = true;
         levelCompleted = true;
-        showMessage("💀 你被红色追击者抓住了！游戏结束！💀", 180);
+
+        // ========== 新增：背包摘要 ==========
+        StringBuilder sb = new StringBuilder("背包物品：");
+        if (player.getInventory().isEmpty()) {
+            sb.append("空");
+        } else {
+            for (Item item : player.getInventory()) {
+                sb.append(item.getName()).append(" ");
+            }
+        }
+        // ===================================
+
+        showMessage("💀 你被红色追击者抓住了！游戏结束！💀\n最终得分: " + score + " | " + sb.toString(), 180);
         if (!isGuestMode) {
             UserManager.getInstance().updateGameData(score);
         }
 
-        // 使用 SwingUtilities.invokeLater 确保在 EDT 上执行重启
         Timer delayTimer = new Timer(2000, e -> {
             restartGame();
-            isGameOverHandled = false;  // 重启后重置标志
+            isGameOverHandled = false;
         });
         delayTimer.setRepeats(false);
         delayTimer.start();

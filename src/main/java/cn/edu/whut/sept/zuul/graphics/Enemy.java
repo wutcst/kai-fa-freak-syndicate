@@ -78,6 +78,10 @@ public class Enemy {
         return new Rectangle(x, y, width, height);
     }
 
+    public void setSpeed(double speed) {
+        this.speed = speed;
+    }
+
     public void draw(Graphics2D g) {
         if (isStunned) {
             g.setColor(stunnedColor);

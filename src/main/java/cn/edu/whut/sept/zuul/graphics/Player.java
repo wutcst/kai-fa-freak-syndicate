@@ -124,4 +124,19 @@ public class Player {
         sb.append("总重量：").append(currentWeight).append("/").append(maxWeight).append("kg");
         return sb.toString();
     }
+
+    /**
+     * 强制添加物品到背包（不检查负重，用于加载存档）
+     */
+    public void forceAddItem(Item item) {
+        inventory.add(item);
+        currentWeight += item.getWeight();
+    }
+
+    /**
+     * 设置最大负重（用于加载存档）
+     */
+    public void setMaxWeight(int maxWeight) {
+        this.maxWeight = maxWeight;
+    }
 }
